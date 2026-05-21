@@ -1,0 +1,227 @@
+# ============================================================
+# docker-compose.yml — Pair Programming Microservicios
+# Fase 2 — Arquitectura de Software UNAB
+# ============================================================
+# Infraestructura base: API Gateway, bases de datos, broker, cache
+# Microservicios se agregarán en archivos sucesivos o aquí mismo
+# ============================================================
+
+services:
+  # ----------------------------------------------------------
+  # DOCKER SOCKET PROXY — Acceso seguro al daemon
+  # ----------------------------------------------------------
+  # Patrón: Principle of Least Privilege
+  # Aísla a Traefik del socket de Docker exponiendo un API filtrado.
+  # Solo permite endpoints de descubrimiento (read-only).
+  # Estándar de la industria para Traefik en entornos productivos.
+  # ----------------------------------------------------------
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    container_name: pp_docker_socket_proxy
+    restart: unless-stopped
+    environment:
+      # Endpoints expuestos a Traefik (solo lectura, mínimo necesario)
+      CONTAINERS: 1
+      NETWORKS: 1
+      SERVICES: 1
+      TASKS: 1
+      INFO: 1
+      VERSION: 1
+      # Endpoints denegados explícitamente
+      POST: 0
+      BUILD: 0
+      COMMIT: 0
+      EXEC: 0
+      VOLUMES: 0
+      IMAGES: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:2375/_ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+  # ----------------------------------------------------------
+  # API GATEWAY — Traefik
+  # ----------------------------------------------------------
+  # Patrón: API Gateway
+  # Habla con Docker a través del docker-socket-proxy (no directo)
+  # ----------------------------------------------------------
+  traefik:
+    image: traefik:v2.11   # ← antes era traefik:v3.1
+    container_name: pp_traefik
+    restart: unless-stopped
+    # Ya NO necesitamos DOCKER_API_VERSION (Traefik 2.11 negocia bien)
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.endpoint=tcp://docker-socket-proxy:2375"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=pp_app_network"
+      - "--entrypoints.web.address=:80"
+      - "--api.dashboard=true"
+      - "--api.insecure=true"
+      - "--log.level=INFO"
+      - "--accesslog=true"
+    ports:
+      - "80:80"
+      - "8080:8080"
+    networks:
+      - app-network
+    depends_on:
+      docker-socket-proxy:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:8080/api/rawdata"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ----------------------------------------------------------
+  # DATABASE — PostgreSQL para Auth
+  # ----------------------------------------------------------
+  # Patrón: Database per Service
+  # Cada microservicio tiene su BD aislada (mismo motor, distintos schemas/contenedores)
+  # ----------------------------------------------------------
+  postgres-auth:
+    image: postgres:16-alpine
+    container_name: pp_postgres_auth
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_AUTH_DB}
+      POSTGRES_USER: ${POSTGRES_AUTH_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_AUTH_PASSWORD}
+    volumes:
+      - postgres_auth_data:/var/lib/postgresql/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_AUTH_USER} -d ${POSTGRES_AUTH_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ----------------------------------------------------------
+  # DATABASE — PostgreSQL para Pair Programming
+  # ----------------------------------------------------------
+  postgres-pp:
+    image: postgres:16-alpine
+    container_name: pp_postgres_pp
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_PP_DB}
+      POSTGRES_USER: ${POSTGRES_PP_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PP_PASSWORD}
+    volumes:
+      - postgres_pp_data:/var/lib/postgresql/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_PP_USER} -d ${POSTGRES_PP_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ----------------------------------------------------------
+  # DATABASE — PostgreSQL para AI Engine
+  # ----------------------------------------------------------
+  postgres-ai:
+    image: postgres:16-alpine
+    container_name: pp_postgres_ai
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_AI_DB}
+      POSTGRES_USER: ${POSTGRES_AI_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_AI_PASSWORD}
+    volumes:
+      - postgres_ai_data:/var/lib/postgresql/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_AI_USER} -d ${POSTGRES_AI_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ----------------------------------------------------------
+  # MESSAGE BROKER — RabbitMQ
+  # ----------------------------------------------------------
+  # Patrón: Asynchronous Messaging / Choreography
+  # Habilita comunicación desacoplada vía eventos
+  # Imagen con management plugin para UI de inspección
+  # ----------------------------------------------------------
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: pp_rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    ports:
+      - "5672:5672"    # Puerto AMQP (lo usan los servicios)
+      - "15672:15672"  # Puerto del management UI
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ----------------------------------------------------------
+  # CACHE / STATE — Redis
+  # ----------------------------------------------------------
+  # Usado por Editor Colaborativo para:
+  #  - Snapshots periódicos del estado Yjs
+  #  - Log de operaciones (habilita patrón Event Sourcing para B4 Replay)
+  # ----------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: pp_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+# ============================================================
+# VOLÚMENES — Persistencia de datos
+# ============================================================
+volumes:
+  postgres_auth_data:
+    name: pp_postgres_auth_data
+  postgres_pp_data:
+    name: pp_postgres_pp_data
+  postgres_ai_data:
+    name: pp_postgres_ai_data
+  rabbitmq_data:
+    name: pp_rabbitmq_data
+  redis_data:
+    name: pp_redis_data
+
+# ============================================================
+# REDES — Aislamiento de comunicación
+# ============================================================
+# Toda la comunicación entre contenedores ocurre en esta red privada
+# Solo Traefik, RabbitMQ UI y eventualmente el frontend exponen puertos al host
+# ============================================================
+networks:
+  app-network:
+    name: pp_app_network
+    driver: bridge
