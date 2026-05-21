@@ -1,0 +1,38 @@
+# Dependencias (se reinstalan dentro del contenedor)
+vendor/
+node_modules/
+
+# Variables locales
+.env
+.env.local
+.env.*.local
+
+# Logs y cache
+storage/logs/*
+!storage/logs/.gitignore
+storage/framework/cache/*
+!storage/framework/cache/.gitignore
+storage/framework/sessions/*
+!storage/framework/sessions/.gitignore
+storage/framework/views/*
+!storage/framework/views/.gitignore
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# IDE
+.vscode/
+.idea/
+.editorconfig
+
+# Tests
+tests/
+phpunit.xml
+
+# Documentación
+README.md
+
+# Lock cache de PHPUnit
+.phpunit.result.cache

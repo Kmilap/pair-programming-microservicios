@@ -106,6 +106,51 @@ services:
       start_period: 10s
 
   # ----------------------------------------------------------
+  # MICROSERVICIO — Auth (Laravel 12 + JWT)
+  # ----------------------------------------------------------
+  # Responsabilidad: autenticación, usuarios, emisión de JWT.
+  # Patrones aplicados:
+  #  - Database per Service (su propio PostgreSQL)
+  #  - Single Sign-On con JWT (emisor del token)
+  #  - Health Check (/auth/health)
+  # ----------------------------------------------------------
+  auth:
+    build:
+      context: ./services/auth
+      dockerfile: Dockerfile
+    container_name: pp_auth
+    restart: unless-stopped
+    environment:
+      APP_ENV: local
+      APP_DEBUG: "true"
+      APP_KEY: ${AUTH_APP_KEY}
+      DB_CONNECTION: pgsql
+      DB_HOST: postgres-auth
+      DB_PORT: 5432
+      DB_DATABASE: ${POSTGRES_AUTH_DB}
+      DB_USERNAME: ${POSTGRES_AUTH_USER}
+      DB_PASSWORD: ${POSTGRES_AUTH_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_TTL: ${JWT_TTL}
+      LOG_CHANNEL: stderr
+    depends_on:
+      postgres-auth:
+        condition: service_healthy
+    networks:
+      - app-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.auth.rule=PathPrefix(`/auth`)"
+      - "traefik.http.routers.auth.entrypoints=web"
+      - "traefik.http.services.auth.loadbalancer.server.port=8000"
+    healthcheck:
+      test: ["CMD-SHELL", "php -r \"exit(@file_get_contents('http://localhost:8000/auth/health') ? 0 : 1);\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+  
+  # ----------------------------------------------------------
   # DATABASE — PostgreSQL para Pair Programming
   # ----------------------------------------------------------
   postgres-pp:
