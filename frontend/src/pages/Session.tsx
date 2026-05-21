@@ -1,0 +1,192 @@
+import { motion } from 'framer-motion'
+import { Code2, Zap, Bug, BookOpen, Circle, ChevronLeft, Users } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+
+const codeLines = [
+  { n: 1,  content: <span style={{ color: '#3a6a7a', fontStyle: 'italic' }}># Monaco Editor + Yjs — colaboración en tiempo real</span> },
+  { n: 2,  content: <><span style={{ color: '#028090' }}>def </span><span style={{ color: '#02C39A' }}>fizzbuzz</span><span style={{ color: '#7ab8c8' }}>(n: int):</span></> },
+  { n: 3,  content: <span style={{ color: '#3a6a7a', fontStyle: 'italic' }}>{'    '}# cursor Camila ↓</span> },
+  { n: 4,  content: <span style={{ color: '#7ab8c8' }}>{'    '}result = []</span> },
+  { n: 5,  content: <><span style={{ color: '#028090' }}>{'    '}for </span><span style={{ color: '#7ab8c8' }}>i </span><span style={{ color: '#028090' }}>in </span><span style={{ color: '#02C39A' }}>range</span><span style={{ color: '#7ab8c8' }}>(1, n+1):</span></> },
+  { n: 6,  content: <><span style={{ color: '#028090' }}>{'        '}if </span><span style={{ color: '#7ab8c8' }}>i % 15 == 0: result.append(</span><span style={{ color: '#F0F3BD' }}>"FizzBuzz"</span><span style={{ color: '#7ab8c8' }}>)</span></> },
+  { n: 7,  content: <><span style={{ color: '#028090' }}>{'        '}elif </span><span style={{ color: '#7ab8c8' }}>i % 3 == 0: result.append(</span><span style={{ color: '#F0F3BD' }}>"Fizz"</span><span style={{ color: '#7ab8c8' }}>)</span></> },
+  { n: 8,  content: <><span style={{ color: '#028090' }}>{'        '}elif </span><span style={{ color: '#7ab8c8' }}>i % 5 == 0: result.append(</span><span style={{ color: '#F0F3BD' }}>"Buzz"</span><span style={{ color: '#7ab8c8' }}>)</span></> },
+  { n: 9,  content: <><span style={{ color: '#028090' }}>{'        '}else</span><span style={{ color: '#7ab8c8' }}>: result.append(</span><span style={{ color: '#02C39A' }}>str</span><span style={{ color: '#7ab8c8' }}>(i))</span></> },
+  { n: 10, content: <><span style={{ color: '#028090' }}>{'    '}return </span><span style={{ color: '#7ab8c8' }}>result</span></> },
+]
+
+const aiActions = [
+  { icon: <Zap size={14} strokeWidth={2} />, label: 'Pedir sugerencia', accent: true },
+  { icon: <Bug size={14} strokeWidth={2} />, label: 'Analizar errores', accent: false },
+  { icon: <BookOpen size={14} strokeWidth={2} />, label: 'Explicar código', accent: false },
+]
+
+export default function Session() {
+  const navigate = useNavigate()
+
+  return (
+    <div style={{ width: '100vw', height: '100vh', background: '#07101a', display: 'flex', flexDirection: 'column', fontFamily: 'Inter, system-ui, sans-serif', overflow: 'hidden' }}>
+
+      {/* ── Header ───────────────────────────────────────────────────────── */}
+      <motion.header
+        initial={{ y: -20, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ duration: 0.4 }}
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 24px', background: '#081623', borderBottom: '1px solid rgba(5,102,141,0.18)', flexShrink: 0 }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+          <button
+            onClick={() => navigate('/dashboard')}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#3a6a7a', background: 'none', border: 'none', cursor: 'pointer', padding: 0, transition: 'color 0.2s' }}
+          >
+            <ChevronLeft size={14} strokeWidth={2} /> Dashboard
+          </button>
+          <div style={{ width: 1, height: 16, background: 'rgba(5,102,141,0.3)' }} />
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 500, color: '#e8f4f8' }}>FizzBuzz optimizado</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 10, color: '#3a6a7a', marginTop: 2 }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                {/* Pulsing live dot */}
+                <span style={{ position: 'relative', width: 6, height: 6, display: 'inline-flex' }}>
+                  <motion.span
+                    animate={{ scale: [1, 1.8, 1], opacity: [0.7, 0, 0.7] }}
+                    transition={{ duration: 2, repeat: Infinity, ease: 'easeOut' }}
+                    style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: '#02C39A' }}
+                  />
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#02C39A', display: 'block' }} />
+                </span>
+                En vivo
+              </span>
+              <span>Sala: abc-123</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Users size={10} strokeWidth={2} /> 2 participantes
+              </span>
+            </div>
+          </div>
+        </div>
+        <button style={{ fontSize: 12, padding: '6px 16px', borderRadius: 8, border: '1px solid rgba(220,60,60,0.35)', color: '#ff6b6b', background: 'none', cursor: 'pointer', fontWeight: 500, transition: 'background 0.2s' }}>
+          Terminar sesión
+        </button>
+      </motion.header>
+
+      {/* ── Body ─────────────────────────────────────────────────────────── */}
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+
+        {/* Code editor — 7 parts */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.5, delay: 0.1 }}
+          style={{ flex: 7, display: 'flex', flexDirection: 'column', background: '#060f18', borderRight: '1px solid rgba(5,102,141,0.18)', position: 'relative', overflow: 'hidden' }}
+        >
+          {/* Subtle grid inside code area */}
+          <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0,
+            backgroundImage: 'linear-gradient(rgba(2,195,154,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(2,195,154,0.025) 1px, transparent 1px)',
+            backgroundSize: '44px 44px',
+          }} />
+
+          {/* Editor toolbar */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '10px 24px', background: '#0a1520', borderBottom: '1px solid rgba(5,102,141,0.18)', flexShrink: 0, position: 'relative', zIndex: 1 }}>
+            <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(0,168,150,0.35)', color: '#00A896', background: 'rgba(0,168,150,0.06)' }}>
+              Python 3
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: '#02C39A' }}>
+              <Circle size={5} className="fill-[#02C39A] text-[#02C39A]" /> Colaboración activa
+            </div>
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div title="Noel (Tú)" style={{ width: 24, height: 24, borderRadius: '50%', background: 'rgba(2,195,154,0.12)', border: '1px solid rgba(2,195,154,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 600, color: '#02C39A', cursor: 'help' }}>NK</div>
+              <div title="Camila" style={{ width: 24, height: 24, borderRadius: '50%', background: 'rgba(2,128,144,0.12)', border: '1px solid rgba(2,128,144,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 600, color: '#028090', cursor: 'help' }}>CP</div>
+            </div>
+          </div>
+
+          {/* Code content */}
+          <div style={{ flex: 1, padding: '24px 32px', overflowY: 'auto', fontFamily: 'JetBrains Mono, monospace', position: 'relative', zIndex: 1 }}>
+            {codeLines.map((line) => (
+              <div key={line.n} style={{ display: 'flex', gap: 24, lineHeight: '2', fontSize: 13 }}>
+                <span style={{ color: '#1e3a4a', width: 20, textAlign: 'right', flexShrink: 0, userSelect: 'none' }}>{line.n}</span>
+                <span style={{ whiteSpace: 'pre' }}>{line.content}</span>
+              </div>
+            ))}
+            {/* Blinking cursor */}
+            <div style={{ display: 'flex', gap: 24, lineHeight: '2', fontSize: 13 }}>
+              <span style={{ color: '#1e3a4a', width: 20, textAlign: 'right', flexShrink: 0, userSelect: 'none' }}>11</span>
+              <motion.span
+                animate={{ opacity: [1, 0, 1] }}
+                transition={{ repeat: Infinity, duration: 1 }}
+                style={{ display: 'inline-block', width: 8, height: 16, background: '#02C39A', marginTop: 6 }}
+              />
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Sidebar — 3 parts */}
+        <motion.div
+          initial={{ x: 40, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          transition={{ duration: 0.5, delay: 0.15 }}
+          style={{ flex: 3, display: 'flex', flexDirection: 'column', minWidth: 280, background: '#081623' }}
+        >
+
+          {/* Partner */}
+          <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(5,102,141,0.18)' }}>
+            <p style={{ fontSize: 10, color: '#3a6a7a', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 14 }}>Pareja</p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(2,128,144,0.12)', border: '1px solid rgba(2,128,144,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600, color: '#028090', flexShrink: 0 }}>CP</div>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 500, color: '#e8f4f8' }}>Camila P.</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: '#02C39A', marginTop: 2 }}>
+                  <span style={{ position: 'relative', width: 6, height: 6, display: 'inline-flex' }}>
+                    <motion.span
+                      animate={{ scale: [1, 1.8, 1], opacity: [0.7, 0, 0.7] }}
+                      transition={{ duration: 2.3, repeat: Infinity, ease: 'easeOut', delay: 0.4 }}
+                      style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: '#02C39A' }}
+                    />
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#02C39A', display: 'block' }} />
+                  </span>
+                  En línea · editando
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Problem statement */}
+          <div style={{ padding: '20px 24px', flex: 1, overflowY: 'auto', borderBottom: '1px solid rgba(5,102,141,0.18)' }}>
+            <p style={{ fontSize: 10, color: '#3a6a7a', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 14 }}>Enunciado</p>
+            <p style={{ fontSize: 14, fontWeight: 500, color: '#e8f4f8', marginBottom: 12 }}>FizzBuzz optimizado</p>
+            <div style={{ fontSize: 12, color: '#7ab8c8', lineHeight: 1.7, padding: '14px 16px', borderRadius: 12, background: 'rgba(5,102,141,0.07)', border: '1px solid rgba(5,102,141,0.18)' }}>
+              Implementa una función FizzBuzz que evite múltiples operaciones de módulo. Para n números del 1 al n, retorna lista de strings con complejidad O(n).
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+              <span style={{ fontSize: 10, padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(5,102,141,0.25)', color: '#3a6a7a' }}>Media</span>
+              <span style={{ fontSize: 10, padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(5,102,141,0.25)', color: '#3a6a7a' }}>Python 3</span>
+            </div>
+          </div>
+
+          {/* AI assistant */}
+          <div style={{ padding: '20px 24px', background: 'rgba(5,102,141,0.04)' }}>
+            <p style={{ fontSize: 10, color: '#3a6a7a', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 14 }}>Copilot IA</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {aiActions.map((action) => (
+                <motion.button
+                  key={action.label}
+                  whileHover={{ scale: 1.02, filter: 'brightness(1.1)' }}
+                  whileTap={{ scale: 0.98 }}
+                  style={{
+                    width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '11px 14px', borderRadius: 12, fontSize: 12, textAlign: 'left', cursor: 'pointer',
+                    ...(action.accent
+                      ? { background: 'linear-gradient(135deg, #028090, #02C39A)', color: '#07101a', fontWeight: 700, border: 'none' }
+                      : { background: 'rgba(5,102,141,0.07)', color: '#7ab8c8', border: '1px solid rgba(5,102,141,0.2)' }),
+                  }}
+                >
+                  {action.icon} {action.label}
+                </motion.button>
+              ))}
+            </div>
+          </div>
+
+        </motion.div>
+      </div>
+    </div>
+  )
+}
