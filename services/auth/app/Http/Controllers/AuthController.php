@@ -114,10 +114,37 @@ class AuthController extends Controller
      * Este endpoint es la pieza clave del patrón SSO con JWT en
      * arquitectura de microservicios.
      */
+    /**
+     * POST /auth/validate
+     * Endpoint usado por OTROS microservicios para verificar un JWT.
+     *
+     * Recibe el token en el body: { "token": "eyJ..." }
+     * Devuelve los claims si es válido, o 401 si no lo es.
+     *
+     * Este endpoint es la pieza clave del patrón SSO con JWT en
+     * arquitectura de microservicios: cualquier servicio puede validar
+     * un JWT sin acoplarse al algoritmo de firma, simplemente preguntando
+     * a Auth.
+     */
     public function validateToken(Request $request): JsonResponse
     {
+        $validator = Validator::make($request->all(), [
+            'token' => 'required|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'valid'   => false,
+                'message' => 'Token is required in body',
+            ], 422);
+        }
+
         try {
-            $user = JWTAuth::parseToken()->authenticate();
+            // Cargar el token enviado en el body en el contexto de JWTAuth
+            JWTAuth::setToken($request->input('token'));
+
+            // Autenticar al usuario asociado al token
+            $user = JWTAuth::authenticate();
 
             if (!$user) {
                 return response()->json([
@@ -126,7 +153,7 @@ class AuthController extends Controller
                 ], 401);
             }
 
-            $payload = JWTAuth::parseToken()->getPayload();
+            $payload = JWTAuth::getPayload();
 
             return response()->json([
                 'valid'   => true,
@@ -148,6 +175,12 @@ class AuthController extends Controller
                 'valid'   => false,
                 'message' => 'Token absent or malformed',
             ], 401);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'valid'   => false,
+                'message' => 'Validation error',
+                'error'   => $e->getMessage(),
+            ], 500);
         }
     }
 

@@ -132,6 +132,8 @@ services:
       DB_PASSWORD: ${POSTGRES_AUTH_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
       JWT_TTL: ${JWT_TTL}
+      JWT_BLACKLIST_ENABLED: "false"
+      CACHE_STORE: array
       LOG_CHANNEL: stderr
     depends_on:
       postgres-auth:

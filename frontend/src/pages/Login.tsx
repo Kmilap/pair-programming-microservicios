@@ -1,6 +1,8 @@
-import { useRef, useEffect, type CSSProperties } from 'react'
+import { useRef, useEffect, useState, type CSSProperties, type FormEvent } from 'react'
 import { motion } from 'framer-motion'
 import { Code2, Lock, Mail, Users, Zap, Monitor } from 'lucide-react'
+import { useNavigate, useLocation } from 'react-router-dom'
+import { useAuth } from '../hooks/useAuth'
 
 // ── Floating code tokens ──────────────────────────────────────────────────
 const TOKENS = [
@@ -56,6 +58,54 @@ export default function Login() {
   const gradRef     = useRef<SVGLinearGradientElement>(null)
   const splashRef   = useRef<HTMLDivElement>(null)
 
+  // ── [NUEVO] Estado del formulario ───────────────────────────────────────
+  const [email, setEmail]       = useState('')
+  const [password, setPassword] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [formError, setFormError]   = useState<string | null>(null)
+
+  const { login, isAuthenticated } = useAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
+
+  // Si el usuario ya está autenticado y entra a /login, mándalo al dashboard.
+  // (o al lugar de donde venía si ProtectedRoute lo había redirigido aquí)
+  useEffect(() => {
+    if (isAuthenticated) {
+      const from = (location.state as { from?: { pathname: string } } | null)?.from?.pathname ?? '/dashboard'
+      navigate(from, { replace: true })
+    }
+  }, [isAuthenticated, navigate, location.state])
+
+  const handleSubmit = async (e?: FormEvent) => {
+    e?.preventDefault()
+    if (submitting) return
+    setFormError(null)
+
+    // Validación mínima en cliente
+    if (!email.trim() || !password.trim()) {
+      setFormError('Ingresa tu correo y contraseña.')
+      return
+    }
+
+    setSubmitting(true)
+    try {
+      await login({ email: email.trim(), password })
+      // El useEffect de arriba se encarga del navigate al cambiar isAuthenticated.
+    } catch (err) {
+      // El error legible ya está en el AuthContext (state.error), pero también
+      // lo mostramos localmente para mayor responsividad.
+      setFormError(
+        (err as Error)?.message?.includes('Network') || (err as { code?: string })?.code === 'ERR_NETWORK'
+          ? 'No se pudo conectar con el servidor.'
+          : 'Credenciales inválidas o servicio no disponible.'
+      )
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  // ── Animación del beam (intacto, tal cual lo dejó Noel) ─────────────────
   useEffect(() => {
     type Phase = 'idle' | 'p1' | 'splash' | 'p2'
     let phase: Phase = 'idle'
@@ -208,29 +258,87 @@ export default function Login() {
           <h1 style={{ fontSize: 34, fontWeight: 700, color: '#e8f4f8', letterSpacing: '-0.6px', marginBottom: 10, lineHeight: 1.15 }}>Bienvenido</h1>
           <p style={{ fontSize: 14, color: '#7ab8c8', marginBottom: 38 }}>Inicia sesión para continuar</p>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-            <div>
-              <label style={{ fontSize: 10, color: '#3a6a7a', textTransform: 'uppercase', letterSpacing: '0.1em', display: 'block', marginBottom: 8 }}>Correo electrónico</label>
-              <div style={{ position: 'relative' }}>
-                <Mail size={14} strokeWidth={2} color="#3a6a7a" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
-                <input type="email" placeholder="usuario@unab.edu.co" style={{ width: '100%', background: 'rgba(8,22,35,0.85)', border: '1px solid rgba(5,102,141,0.3)', borderRadius: 12, padding: '13px 14px 13px 42px', fontSize: 13, color: '#e8f4f8', outline: 'none', boxSizing: 'border-box' }} />
+          {/* [NUEVO] El contenido del formulario ahora vive dentro de <form>
+              para permitir submit con Enter. NINGÚN style fue cambiado. */}
+          <form onSubmit={handleSubmit} noValidate>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              <div>
+                <label style={{ fontSize: 10, color: '#3a6a7a', textTransform: 'uppercase', letterSpacing: '0.1em', display: 'block', marginBottom: 8 }}>Correo electrónico</label>
+                <div style={{ position: 'relative' }}>
+                  <Mail size={14} strokeWidth={2} color="#3a6a7a" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+                  {/* [MODIFICADO] añadidos value, onChange, disabled, autoComplete */}
+                  <input
+                    type="email"
+                    placeholder="usuario@unab.edu.co"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    disabled={submitting}
+                    autoComplete="email"
+                    style={{ width: '100%', background: 'rgba(8,22,35,0.85)', border: '1px solid rgba(5,102,141,0.3)', borderRadius: 12, padding: '13px 14px 13px 42px', fontSize: 13, color: '#e8f4f8', outline: 'none', boxSizing: 'border-box' }}
+                  />
+                </div>
               </div>
-            </div>
-            <div>
-              <label style={{ fontSize: 10, color: '#3a6a7a', textTransform: 'uppercase', letterSpacing: '0.1em', display: 'block', marginBottom: 8 }}>Contraseña</label>
-              <div style={{ position: 'relative' }}>
-                <Lock size={14} strokeWidth={2} color="#3a6a7a" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
-                <input type="password" placeholder="••••••••" style={{ width: '100%', background: 'rgba(8,22,35,0.85)', border: '1px solid rgba(5,102,141,0.3)', borderRadius: 12, padding: '13px 14px 13px 42px', fontSize: 13, color: '#e8f4f8', outline: 'none', boxSizing: 'border-box' }} />
+              <div>
+                <label style={{ fontSize: 10, color: '#3a6a7a', textTransform: 'uppercase', letterSpacing: '0.1em', display: 'block', marginBottom: 8 }}>Contraseña</label>
+                <div style={{ position: 'relative' }}>
+                  <Lock size={14} strokeWidth={2} color="#3a6a7a" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+                  {/* [MODIFICADO] añadidos value, onChange, disabled, autoComplete */}
+                  <input
+                    type="password"
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    disabled={submitting}
+                    autoComplete="current-password"
+                    style={{ width: '100%', background: 'rgba(8,22,35,0.85)', border: '1px solid rgba(5,102,141,0.3)', borderRadius: 12, padding: '13px 14px 13px 42px', fontSize: 13, color: '#e8f4f8', outline: 'none', boxSizing: 'border-box' }}
+                  />
+                </div>
               </div>
+
+              {/* [NUEVO] Mensaje de error sutil, paleta del diseño de Noel */}
+              {formError && (
+                <div
+                  role="alert"
+                  style={{
+                    fontSize: 12,
+                    color: '#ff8aa5',
+                    background: 'rgba(255,138,165,0.06)',
+                    border: '1px solid rgba(255,138,165,0.25)',
+                    borderRadius: 10,
+                    padding: '10px 12px',
+                    marginTop: -4,
+                  }}
+                >
+                  {formError}
+                </div>
+              )}
+
+              {/* [MODIFICADO] añadidos type="submit", disabled, onClick (por si el form se quita en el futuro), y texto dinámico */}
+              <motion.button
+                type="submit"
+                onClick={handleSubmit}
+                disabled={submitting}
+                whileHover={!submitting ? { scale: 1.02 } : undefined}
+                whileTap={!submitting ? { scale: 0.98 } : undefined}
+                style={{
+                  width: '100%',
+                  padding: '14px',
+                  borderRadius: 12,
+                  fontSize: 14,
+                  fontWeight: 600,
+                  color: '#07101a',
+                  background: 'linear-gradient(135deg, #028090, #02C39A)',
+                  border: 'none',
+                  cursor: submitting ? 'not-allowed' : 'pointer',
+                  marginTop: 4,
+                  opacity: submitting ? 0.6 : 1,
+                  transition: 'opacity 0.2s ease',
+                }}
+              >
+                {submitting ? 'Iniciando sesión…' : 'Iniciar sesión'}
+              </motion.button>
             </div>
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              style={{ width: '100%', padding: '14px', borderRadius: 12, fontSize: 14, fontWeight: 600, color: '#07101a', background: 'linear-gradient(135deg, #028090, #02C39A)', border: 'none', cursor: 'pointer', marginTop: 4 }}
-            >
-              Iniciar sesión
-            </motion.button>
-          </div>
+          </form>
 
           <p style={{ fontSize: 12, color: '#3a6a7a', textAlign: 'center', marginTop: 28 }}>
             ¿No tienes cuenta?{' '}
