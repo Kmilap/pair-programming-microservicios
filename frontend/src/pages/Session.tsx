@@ -1,19 +1,7 @@
 import { motion } from 'framer-motion'
-import { Code2, Zap, Bug, BookOpen, Circle, ChevronLeft, Users } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
-
-const codeLines = [
-  { n: 1,  content: <span style={{ color: '#3a6a7a', fontStyle: 'italic' }}># Monaco Editor + Yjs — colaboración en tiempo real</span> },
-  { n: 2,  content: <><span style={{ color: '#028090' }}>def </span><span style={{ color: '#02C39A' }}>fizzbuzz</span><span style={{ color: '#7ab8c8' }}>(n: int):</span></> },
-  { n: 3,  content: <span style={{ color: '#3a6a7a', fontStyle: 'italic' }}>{'    '}# cursor Camila ↓</span> },
-  { n: 4,  content: <span style={{ color: '#7ab8c8' }}>{'    '}result = []</span> },
-  { n: 5,  content: <><span style={{ color: '#028090' }}>{'    '}for </span><span style={{ color: '#7ab8c8' }}>i </span><span style={{ color: '#028090' }}>in </span><span style={{ color: '#02C39A' }}>range</span><span style={{ color: '#7ab8c8' }}>(1, n+1):</span></> },
-  { n: 6,  content: <><span style={{ color: '#028090' }}>{'        '}if </span><span style={{ color: '#7ab8c8' }}>i % 15 == 0: result.append(</span><span style={{ color: '#F0F3BD' }}>"FizzBuzz"</span><span style={{ color: '#7ab8c8' }}>)</span></> },
-  { n: 7,  content: <><span style={{ color: '#028090' }}>{'        '}elif </span><span style={{ color: '#7ab8c8' }}>i % 3 == 0: result.append(</span><span style={{ color: '#F0F3BD' }}>"Fizz"</span><span style={{ color: '#7ab8c8' }}>)</span></> },
-  { n: 8,  content: <><span style={{ color: '#028090' }}>{'        '}elif </span><span style={{ color: '#7ab8c8' }}>i % 5 == 0: result.append(</span><span style={{ color: '#F0F3BD' }}>"Buzz"</span><span style={{ color: '#7ab8c8' }}>)</span></> },
-  { n: 9,  content: <><span style={{ color: '#028090' }}>{'        '}else</span><span style={{ color: '#7ab8c8' }}>: result.append(</span><span style={{ color: '#02C39A' }}>str</span><span style={{ color: '#7ab8c8' }}>(i))</span></> },
-  { n: 10, content: <><span style={{ color: '#028090' }}>{'    '}return </span><span style={{ color: '#7ab8c8' }}>result</span></> },
-]
+import { Zap, Bug, BookOpen, Circle, ChevronLeft, Users } from 'lucide-react'
+import { useNavigate, useLocation, useParams } from 'react-router-dom'
+import type { SessionData } from '../services/sessionService'
 
 const aiActions = [
   { icon: <Zap size={14} strokeWidth={2} />, label: 'Pedir sugerencia', accent: true },
@@ -23,7 +11,17 @@ const aiActions = [
 
 export default function Session() {
   const navigate = useNavigate()
-
+  const location = useLocation()
+  const { id } = useParams()
+  const sessionData = (location.state as { sessionData: SessionData } | null)?.sessionData ?? (() => {
+  try {
+    const sessions = JSON.parse(localStorage.getItem('recent_sessions') ?? '[]')
+    const found = sessions.find((s: any) => s.id === id)
+    return found?.exerciseData ?? null
+  } catch { return null }
+})()
+  const exercise = sessionData?.exercise
+  
   return (
     <div style={{ width: '100vw', height: '100vh', background: '#07101a', display: 'flex', flexDirection: 'column', fontFamily: 'Inter, system-ui, sans-serif', overflow: 'hidden' }}>
 
@@ -43,7 +41,9 @@ export default function Session() {
           </button>
           <div style={{ width: 1, height: 16, background: 'rgba(5,102,141,0.3)' }} />
           <div>
-            <div style={{ fontSize: 14, fontWeight: 500, color: '#e8f4f8' }}>FizzBuzz optimizado</div>
+            <div style={{ fontSize: 14, fontWeight: 500, color: '#e8f4f8' }}>
+              {exercise?.title ?? 'Cargando…'}
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 10, color: '#3a6a7a', marginTop: 2 }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                 {/* Pulsing live dot */}
@@ -57,14 +57,17 @@ export default function Session() {
                 </span>
                 En vivo
               </span>
-              <span>Sala: abc-123</span>
+              <span>Sala: {id?.slice(0, 8) ?? '…'}</span>
               <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <Users size={10} strokeWidth={2} /> 2 participantes
               </span>
             </div>
           </div>
         </div>
-        <button style={{ fontSize: 12, padding: '6px 16px', borderRadius: 8, border: '1px solid rgba(220,60,60,0.35)', color: '#ff6b6b', background: 'none', cursor: 'pointer', fontWeight: 500, transition: 'background 0.2s' }}>
+        <button
+          onClick={() => navigate('/dashboard')}
+          style={{ fontSize: 12, padding: '6px 16px', borderRadius: 8, border: '1px solid rgba(220,60,60,0.35)', color: '#ff6b6b', background: 'none', cursor: 'pointer', fontWeight: 500, transition: 'background 0.2s' }}
+        >
           Terminar sesión
         </button>
       </motion.header>
@@ -88,7 +91,7 @@ export default function Session() {
           {/* Editor toolbar */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '10px 24px', background: '#0a1520', borderBottom: '1px solid rgba(5,102,141,0.18)', flexShrink: 0, position: 'relative', zIndex: 1 }}>
             <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(0,168,150,0.35)', color: '#00A896', background: 'rgba(0,168,150,0.06)' }}>
-              Python 3
+              {exercise?.language ?? 'javascript'}
             </span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: '#02C39A' }}>
               <Circle size={5} className="fill-[#02C39A] text-[#02C39A]" /> Colaboración activa
@@ -99,22 +102,17 @@ export default function Session() {
             </div>
           </div>
 
-          {/* Code content */}
+          {/* Code content dinámico */}
           <div style={{ flex: 1, padding: '24px 32px', overflowY: 'auto', fontFamily: 'JetBrains Mono, monospace', position: 'relative', zIndex: 1 }}>
-            {codeLines.map((line) => (
-              <div key={line.n} style={{ display: 'flex', gap: 24, lineHeight: '2', fontSize: 13 }}>
-                <span style={{ color: '#1e3a4a', width: 20, textAlign: 'right', flexShrink: 0, userSelect: 'none' }}>{line.n}</span>
-                <span style={{ whiteSpace: 'pre' }}>{line.content}</span>
+            {(exercise?.initial_code ?? '// Cargando código…').split('\n').map((line, i) => (
+              <div key={i} style={{ display: 'flex', gap: 24, lineHeight: '2', fontSize: 13 }}>
+                <span style={{ color: '#1e3a4a', width: 20, textAlign: 'right', flexShrink: 0, userSelect: 'none' }}>{i + 1}</span>
+                <span style={{ whiteSpace: 'pre', color: '#7ab8c8' }}>{line}</span>
               </div>
             ))}
-            {/* Blinking cursor */}
             <div style={{ display: 'flex', gap: 24, lineHeight: '2', fontSize: 13 }}>
-              <span style={{ color: '#1e3a4a', width: 20, textAlign: 'right', flexShrink: 0, userSelect: 'none' }}>11</span>
-              <motion.span
-                animate={{ opacity: [1, 0, 1] }}
-                transition={{ repeat: Infinity, duration: 1 }}
-                style={{ display: 'inline-block', width: 8, height: 16, background: '#02C39A', marginTop: 6 }}
-              />
+              <span style={{ color: '#1e3a4a', width: 20, textAlign: 'right', flexShrink: 0, userSelect: 'none' }}> </span>
+              <motion.span animate={{ opacity: [1, 0, 1] }} transition={{ repeat: Infinity, duration: 1 }} style={{ display: 'inline-block', width: 8, height: 16, background: '#02C39A', marginTop: 6 }} />
             </div>
           </div>
         </motion.div>
@@ -149,16 +147,18 @@ export default function Session() {
             </div>
           </div>
 
-          {/* Problem statement */}
+          {/* Problem statement dinámico */}
           <div style={{ padding: '20px 24px', flex: 1, overflowY: 'auto', borderBottom: '1px solid rgba(5,102,141,0.18)' }}>
             <p style={{ fontSize: 10, color: '#3a6a7a', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 14 }}>Enunciado</p>
-            <p style={{ fontSize: 14, fontWeight: 500, color: '#e8f4f8', marginBottom: 12 }}>FizzBuzz optimizado</p>
-            <div style={{ fontSize: 12, color: '#7ab8c8', lineHeight: 1.7, padding: '14px 16px', borderRadius: 12, background: 'rgba(5,102,141,0.07)', border: '1px solid rgba(5,102,141,0.18)' }}>
-              Implementa una función FizzBuzz que evite múltiples operaciones de módulo. Para n números del 1 al n, retorna lista de strings con complejidad O(n).
+            <p style={{ fontSize: 14, fontWeight: 500, color: '#e8f4f8', marginBottom: 12 }}>
+              {exercise?.title ?? '—'}
+            </p>
+            <div style={{ fontSize: 12, color: '#7ab8c8', lineHeight: 1.7, padding: '14px 16px', borderRadius: 12, background: 'rgba(5,102,141,0.07)', border: '1px solid rgba(5,102,141,0.18)', whiteSpace: 'pre-wrap' }}>
+              {exercise?.statement ?? '—'}
             </div>
             <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-              <span style={{ fontSize: 10, padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(5,102,141,0.25)', color: '#3a6a7a' }}>Media</span>
-              <span style={{ fontSize: 10, padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(5,102,141,0.25)', color: '#3a6a7a' }}>Python 3</span>
+              <span style={{ fontSize: 10, padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(5,102,141,0.25)', color: '#3a6a7a' }}>{exercise?.difficulty ?? '—'}</span>
+              <span style={{ fontSize: 10, padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(5,102,141,0.25)', color: '#3a6a7a' }}>{exercise?.language ?? '—'}</span>
             </div>
           </div>
 

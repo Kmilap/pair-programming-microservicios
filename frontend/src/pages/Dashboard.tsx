@@ -1,13 +1,10 @@
 import { motion } from 'framer-motion'
 import { LayoutDashboard, Code2, BarChart2, Settings, Plus, LogOut, ChevronRight } from 'lucide-react'
-import { useAuth } from '../hooks/useAuth' // <-- 1. Import agregado
-import { useNavigate } from 'react-router-dom' // <-- 1. Import agregado
-
-const sessions = [
-  { id: 1, name: 'FizzBuzz optimizado', lang: 'Python', difficulty: 'Media', partner: 'Camila P.', status: 'active' },
-  { id: 2, name: 'Árbol binario BST', lang: 'JavaScript', difficulty: 'Alta', partner: null, status: 'ended' },
-  { id: 3, name: 'Algoritmo Dijkstra', lang: 'TypeScript', difficulty: 'Alta', partner: 'María G.', status: 'ended' },
-]
+import { useAuth } from '../hooks/useAuth'
+import { useNavigate } from 'react-router-dom'
+import { sessionService } from '../services/sessionService'
+import { useState } from 'react'
+import NewSessionModal from '../components/NewSessionModal'
 
 const navItems = [
   { icon: <LayoutDashboard size={16} strokeWidth={2} />, label: 'Dashboard', active: true },
@@ -34,8 +31,51 @@ const glass = {
 } as const
 
 export default function Dashboard() {
-  const { user, logout } = useAuth() // <-- 2. Hook Auth agregado
-  const navigate = useNavigate() // <-- 2. Hook Navigate agregado
+  const { user, logout } = useAuth()
+  const navigate = useNavigate()
+  const [starting, setStarting] = useState(false)
+  const [modalOpen, setModalOpen] = useState(false)
+
+  const [recentSessions, setRecentSessions] = useState<Array<{
+    id: string | number
+    name: string
+    lang: string
+    difficulty: string
+    partner?: string | null
+    status: string
+    exerciseData?: any
+  }>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('recent_sessions') ?? '[]')
+    } catch { return [] }
+  })
+
+  const handleNewSession = async (exerciseId: number | null) => {
+    setStarting(true)
+    try {
+      const data = await sessionService.start(exerciseId ?? undefined)
+      
+      const newSession = {
+        id: data.session.id,
+        name: data.exercise.title,
+        lang: data.exercise.language,
+        difficulty: data.exercise.difficulty,
+        status: 'active',
+        exerciseData: data,
+      }
+      
+      const updated = [newSession, ...recentSessions].slice(0, 10)
+      localStorage.setItem('recent_sessions', JSON.stringify(updated))
+      setRecentSessions(updated)
+      
+      setModalOpen(false)
+      navigate(`/session/${data.session.id}`, { state: { sessionData: data } })
+    } catch (err) {
+      console.error('Error starting session:', err)
+    } finally {
+      setStarting(false)
+    }
+  }
 
   return (
     <div style={{ width: '100vw', height: '100vh', background: '#07101a', display: 'flex', overflow: 'hidden', fontFamily: 'Inter, system-ui, sans-serif', position: 'relative' }}>
@@ -72,7 +112,7 @@ export default function Dashboard() {
           ))}
         </nav>
 
-        {/* 3. Bloque de Perfil Dinámico */}
+        {/* Bloque de Perfil Dinámico */}
         <div style={{ borderTop: '1px solid rgba(5,102,141,0.18)', paddingTop: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
             <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'rgba(2,195,154,0.1)', border: '1px solid rgba(2,195,154,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 600, color: '#02C39A', flexShrink: 0 }}>
@@ -101,9 +141,15 @@ export default function Dashboard() {
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 40 }}>
             <div>
               <h1 style={{ fontSize: 26, fontWeight: 700, color: '#e8f4f8', letterSpacing: '-0.4px', margin: 0 }}>Mis sesiones</h1>
-              <p style={{ fontSize: 13, color: '#3a6a7a', marginTop: 6 }}>{sessions.length} sesiones en total</p>
+              <p style={{ fontSize: 13, color: '#3a6a7a', marginTop: 6 }}>{recentSessions.length} sesiones en total</p>
             </div>
-            <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', borderRadius: 12, fontSize: 13, fontWeight: 600, color: '#07101a', background: 'linear-gradient(135deg, #028090, #02C39A)', border: 'none', cursor: 'pointer' }}>
+            
+            <motion.button
+              onClick={() => setModalOpen(true)}
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', borderRadius: 12, fontSize: 13, fontWeight: 600, color: '#07101a', background: 'linear-gradient(135deg, #028090, #02C39A)', border: 'none', cursor: 'pointer' }}
+            >
               <Plus size={14} strokeWidth={2.5} /> Nueva sesión
             </motion.button>
           </div>
@@ -111,8 +157,8 @@ export default function Dashboard() {
           <div style={{ borderRadius: 16, marginBottom: 40, overflow: 'hidden', ...glass }}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr' }}>
               {[
-                { label: 'Sesiones activas', value: sessions.filter(s => s.status === 'active').length.toString(), highlight: true },
-                { label: 'Completadas', value: sessions.filter(s => s.status === 'ended').length.toString(), highlight: false },
+                { label: 'Sesiones activas', value: recentSessions.filter(s => s.status === 'active').length.toString(), highlight: true },
+                { label: 'Completadas', value: recentSessions.filter(s => s.status === 'ended').length.toString(), highlight: false },
                 { label: 'Horas totales', value: '4.5h', highlight: false },
               ].map((stat, i) => (
                 <div key={stat.label} style={{ padding: '28px 32px', borderRight: i < 2 ? '1px solid rgba(5,102,141,0.2)' : 'none' }}>
@@ -131,8 +177,16 @@ export default function Dashboard() {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {sessions.map((session, i) => (
-              <motion.div key={session.id} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.15 + i * 0.07 }} whileHover={{ borderColor: session.status === 'active' ? 'rgba(2,195,154,0.4)' : 'rgba(2,128,144,0.35)' }} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 22px', borderRadius: 14, cursor: 'pointer', ...glass, border: session.status === 'active' ? '1px solid rgba(2,195,154,0.2)' : '1px solid rgba(5,102,141,0.18)' }}>
+            {recentSessions.map((session, i) => (
+              <motion.div 
+                key={session.id} 
+                initial={{ opacity: 0, y: 14 }} 
+                animate={{ opacity: 1, y: 0 }} 
+                transition={{ duration: 0.4, delay: 0.15 + i * 0.07 }} 
+                whileHover={{ borderColor: session.status === 'active' ? 'rgba(2,195,154,0.4)' : 'rgba(2,128,144,0.35)' }} 
+                onClick={() => navigate(`/session/${session.id}`)}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 22px', borderRadius: 14, cursor: 'pointer', ...glass, border: session.status === 'active' ? '1px solid rgba(2,195,154,0.2)' : '1px solid rgba(5,102,141,0.18)' }}
+              >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
                   <div style={{ width: 38, height: 38, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, background: session.status === 'active' ? 'rgba(2,195,154,0.1)' : 'rgba(5,102,141,0.1)', border: session.status === 'active' ? '1px solid rgba(2,195,154,0.2)' : '1px solid rgba(5,102,141,0.2)' }}>
                     <Code2 size={15} strokeWidth={2} color={session.status === 'active' ? '#02C39A' : '#3a6a7a'} />
@@ -152,9 +206,24 @@ export default function Dashboard() {
                 </div>
               </motion.div>
             ))}
+
+            <motion.div
+              onClick={() => setModalOpen(true)}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '20px', borderRadius: 14, cursor: 'pointer', border: '1px dashed rgba(5,102,141,0.3)', transition: 'border-color 0.2s' }}
+            >
+              <Plus size={14} strokeWidth={1.5} color="#3a6a7a" />
+              <span style={{ fontSize: 13, color: '#3a6a7a' }}>Nueva sesión</span>
+            </motion.div>
           </div>
         </motion.div>
       </main>
+
+      <NewSessionModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onStart={handleNewSession}
+        loading={starting}
+      />
     </div>
   )
 }
