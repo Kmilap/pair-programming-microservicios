@@ -136,7 +136,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 60s
-  
+
   # ----------------------------------------------------------
   # DATABASE — PostgreSQL para Pair Programming
   # ----------------------------------------------------------
@@ -224,6 +224,151 @@ services:
       retries: 5
       start_period: 5s
 
+  # ----------------------------------------------------------
+  # MICROSERVICIO — Editor Colaborativo (Node + Express)
+  # ----------------------------------------------------------
+  # Día 3: stub que responde POST /editor/rooms con payload fake
+  #        para que Pair Programming complete el patrón Aggregator.
+  # Día 4: este mismo servicio se amplía con Yjs + WebSocket
+  #        para sincronización colaborativa real (CRDT).
+  # Patrones aplicados:
+  #  - Health Check (/editor/health)
+  #  - Database per Service (Redis dedicado, se usa desde Día 4)
+  # ----------------------------------------------------------
+  editor:
+    build:
+      context: ./services/editor
+      dockerfile: Dockerfile
+    container_name: pp_editor
+    restart: unless-stopped
+    networks:
+      - app-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.editor.rule=PathPrefix(`/editor`)"
+      - "traefik.http.routers.editor.entrypoints=web"
+      - "traefik.http.services.editor.loadbalancer.server.port=3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/editor/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+  # ----------------------------------------------------------
+  # MICROSERVICIO — Pair Programming (Laravel 12 + PHP 8.3)
+  # ----------------------------------------------------------
+  # Responsabilidad: gestión de sesiones de pair programming.
+  # Orquesta el inicio de sesión llamando a Auth y al Editor,
+  # persiste estado en su DB aislada y publica eventos al broker.
+  #
+  # Patrones aplicados:
+  #  - Database per Service (su propio PostgreSQL)
+  #  - Single Sign-On con JWT (valida tokens emitidos por Auth)
+  #  - Aggregator (SessionController@start orquesta 2 servicios + DB)
+  #  - Transactional Outbox (eventos persisten en DB, worker publica)
+  #  - Asynchronous Messaging (publica session.started/ended)
+  #  - Health Check (/sessions/health)
+  # ----------------------------------------------------------
+  pair-programming:
+    build:
+      context: ./services/pair-programming
+      dockerfile: Dockerfile
+    container_name: pp_pair_programming
+    restart: unless-stopped
+    environment:
+      APP_ENV: local
+      APP_DEBUG: "true"
+      APP_KEY: ${PP_APP_KEY}
+      APP_URL: http://localhost
+      LOG_CHANNEL: stderr
+      LOG_LEVEL: debug
+      DB_CONNECTION: pgsql
+      DB_HOST: postgres-pp
+      DB_PORT: 5432
+      DB_DATABASE: ${POSTGRES_PP_DB}
+      DB_USERNAME: ${POSTGRES_PP_USER}
+      DB_PASSWORD: ${POSTGRES_PP_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_TTL: ${JWT_TTL}
+      JWT_BLACKLIST_ENABLED: "false"
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      AUTH_SERVICE_URL: http://auth:8000
+      EDITOR_SERVICE_URL: http://editor:3000
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+    depends_on:
+      postgres-pp:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    volumes:
+      - ./services/pair-programming:/app
+      - /app/vendor
+    networks:
+      - app-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pair-programming.rule=PathPrefix(`/sessions`) || PathPrefix(`/exercises`)"
+      - "traefik.http.routers.pair-programming.entrypoints=web"
+      - "traefik.http.services.pair-programming.loadbalancer.server.port=8000"
+    healthcheck:
+      test: ["CMD-SHELL", "php -r \"exit(@file_get_contents('http://127.0.0.1:8000/sessions/health') ? 0 : 1);\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+# ----------------------------------------------------------
+  # WORKER — Outbox Publisher (Transactional Outbox)
+  # ----------------------------------------------------------
+  # Cierra el ciclo del patrón Transactional Outbox.
+  # Reutiliza la MISMA imagen que pair-programming (mismo código,
+  # mismo vendor, mismo config) pero corre un comando artisan
+  # distinto en lugar del servidor HTTP.
+  #
+  # Diseño:
+  #  - Loop infinito que procesa la outbox cada 5 segundos.
+  #  - Si crashea, restart: unless-stopped lo vuelve a levantar.
+  #  - No expone puertos (no es un servicio HTTP).
+  #  - No tiene labels Traefik (no recibe tráfico externo).
+  # ----------------------------------------------------------
+  pair-outbox-worker:
+    build:
+      context: ./services/pair-programming
+      dockerfile: Dockerfile
+    container_name: pp_pair_outbox_worker
+    restart: unless-stopped
+    command: ["sh", "-c", "php artisan outbox:publish --loop"]
+    environment:
+      APP_ENV: local
+      APP_DEBUG: "true"
+      APP_KEY: ${PP_APP_KEY}
+      LOG_CHANNEL: stderr
+      LOG_LEVEL: info
+      DB_CONNECTION: pgsql
+      DB_HOST: postgres-pp
+      DB_PORT: 5432
+      DB_DATABASE: ${POSTGRES_PP_DB}
+      DB_USERNAME: ${POSTGRES_PP_USER}
+      DB_PASSWORD: ${POSTGRES_PP_PASSWORD}
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+    depends_on:
+      postgres-pp:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    volumes:
+      - ./services/pair-programming:/app
+      - /app/vendor
+    networks:
+      - app-network
 # ============================================================
 # PERSISTENCIA Y REDES
 # ============================================================

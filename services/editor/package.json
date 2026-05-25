@@ -1,0 +1,12 @@
+{
+  "name": "editor",
+  "version": "0.1.0",
+  "description": "Editor Colaborativo - Stub Día 3, real con Yjs Día 4",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
