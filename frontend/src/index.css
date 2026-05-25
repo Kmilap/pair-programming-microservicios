@@ -62,3 +62,17 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-accent-mint);
 }
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+select:-webkit-autofill {
+  -webkit-box-shadow: 0 0 0px 1000px rgba(8, 22, 35, 0.95) inset !important;
+  -webkit-text-fill-color: #e8f4f8 !important;
+  caret-color: #e8f4f8;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+input, select, textarea {
+  color-scheme: dark;
+}

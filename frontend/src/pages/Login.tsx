@@ -1,8 +1,9 @@
 import { useRef, useEffect, useState, type CSSProperties, type FormEvent } from 'react'
 import { motion } from 'framer-motion'
 import { Code2, Lock, Mail, Users, Zap, Monitor } from 'lucide-react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+
 
 // ── Floating code tokens ──────────────────────────────────────────────────
 const TOKENS = [
@@ -342,7 +343,7 @@ export default function Login() {
 
           <p style={{ fontSize: 12, color: '#3a6a7a', textAlign: 'center', marginTop: 28 }}>
             ¿No tienes cuenta?{' '}
-            <span style={{ color: '#00A896', cursor: 'pointer' }}>Regístrate</span>
+            <Link to="/register" style={{ color: '#00A896', cursor: 'pointer', textDecoration: 'none' }}>Regístrate</Link>
           </p>
         </div>
       </motion.div>

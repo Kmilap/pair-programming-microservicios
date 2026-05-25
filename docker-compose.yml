@@ -2,32 +2,22 @@
 # docker-compose.yml — Pair Programming Microservicios
 # Fase 2 — Arquitectura de Software UNAB
 # ============================================================
-# Infraestructura base: API Gateway, bases de datos, broker, cache
-# Microservicios se agregarán en archivos sucesivos o aquí mismo
-# ============================================================
 
 services:
   # ----------------------------------------------------------
   # DOCKER SOCKET PROXY — Acceso seguro al daemon
-  # ----------------------------------------------------------
-  # Patrón: Principle of Least Privilege
-  # Aísla a Traefik del socket de Docker exponiendo un API filtrado.
-  # Solo permite endpoints de descubrimiento (read-only).
-  # Estándar de la industria para Traefik en entornos productivos.
   # ----------------------------------------------------------
   docker-socket-proxy:
     image: tecnativa/docker-socket-proxy:latest
     container_name: pp_docker_socket_proxy
     restart: unless-stopped
     environment:
-      # Endpoints expuestos a Traefik (solo lectura, mínimo necesario)
       CONTAINERS: 1
       NETWORKS: 1
       SERVICES: 1
       TASKS: 1
       INFO: 1
       VERSION: 1
-      # Endpoints denegados explícitamente
       POST: 0
       BUILD: 0
       COMMIT: 0
@@ -44,17 +34,14 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+
   # ----------------------------------------------------------
   # API GATEWAY — Traefik
   # ----------------------------------------------------------
-  # Patrón: API Gateway
-  # Habla con Docker a través del docker-socket-proxy (no directo)
-  # ----------------------------------------------------------
   traefik:
-    image: traefik:v2.11   # ← antes era traefik:v3.1
+    image: traefik:v2.11
     container_name: pp_traefik
     restart: unless-stopped
-    # Ya NO necesitamos DOCKER_API_VERSION (Traefik 2.11 negocia bien)
     command:
       - "--providers.docker=true"
       - "--providers.docker.endpoint=tcp://docker-socket-proxy:2375"
@@ -83,9 +70,6 @@ services:
   # ----------------------------------------------------------
   # DATABASE — PostgreSQL para Auth
   # ----------------------------------------------------------
-  # Patrón: Database per Service
-  # Cada microservicio tiene su BD aislada (mismo motor, distintos schemas/contenedores)
-  # ----------------------------------------------------------
   postgres-auth:
     image: postgres:16-alpine
     container_name: pp_postgres_auth
@@ -107,12 +91,6 @@ services:
 
   # ----------------------------------------------------------
   # MICROSERVICIO — Auth (Laravel 12 + JWT)
-  # ----------------------------------------------------------
-  # Responsabilidad: autenticación, usuarios, emisión de JWT.
-  # Patrones aplicados:
-  #  - Database per Service (su propio PostgreSQL)
-  #  - Single Sign-On con JWT (emisor del token)
-  #  - Health Check (/auth/health)
   # ----------------------------------------------------------
   auth:
     build:
@@ -145,6 +123,13 @@ services:
       - "traefik.http.routers.auth.rule=PathPrefix(`/auth`)"
       - "traefik.http.routers.auth.entrypoints=web"
       - "traefik.http.services.auth.loadbalancer.server.port=8000"
+      # MIDDLEWARE CORS
+      - "traefik.http.middlewares.cors.headers.accesscontrolalloworiginlist=http://localhost:5173"
+      - "traefik.http.middlewares.cors.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS"
+      - "traefik.http.middlewares.cors.headers.accesscontrolallowheaders=Content-Type,Authorization"
+      - "traefik.http.middlewares.cors.headers.accesscontrolmaxage=100"
+      - "traefik.http.middlewares.cors.headers.addvaryheader=true"
+      - "traefik.http.routers.auth.middlewares=cors"
     healthcheck:
       test: ["CMD-SHELL", "php -r \"exit(@file_get_contents('http://localhost:8000/auth/health') ? 0 : 1);\""]
       interval: 15s
@@ -199,10 +184,6 @@ services:
   # ----------------------------------------------------------
   # MESSAGE BROKER — RabbitMQ
   # ----------------------------------------------------------
-  # Patrón: Asynchronous Messaging / Choreography
-  # Habilita comunicación desacoplada vía eventos
-  # Imagen con management plugin para UI de inspección
-  # ----------------------------------------------------------
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
     container_name: pp_rabbitmq
@@ -211,8 +192,8 @@ services:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
     ports:
-      - "5672:5672"    # Puerto AMQP (lo usan los servicios)
-      - "15672:15672"  # Puerto del management UI
+      - "5672:5672"
+      - "15672:15672"
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     networks:
@@ -226,10 +207,6 @@ services:
 
   # ----------------------------------------------------------
   # CACHE / STATE — Redis
-  # ----------------------------------------------------------
-  # Usado por Editor Colaborativo para:
-  #  - Snapshots periódicos del estado Yjs
-  #  - Log de operaciones (habilita patrón Event Sourcing para B4 Replay)
   # ----------------------------------------------------------
   redis:
     image: redis:7-alpine
@@ -248,7 +225,7 @@ services:
       start_period: 5s
 
 # ============================================================
-# VOLÚMENES — Persistencia de datos
+# PERSISTENCIA Y REDES
 # ============================================================
 volumes:
   postgres_auth_data:
@@ -262,12 +239,6 @@ volumes:
   redis_data:
     name: pp_redis_data
 
-# ============================================================
-# REDES — Aislamiento de comunicación
-# ============================================================
-# Toda la comunicación entre contenedores ocurre en esta red privada
-# Solo Traefik, RabbitMQ UI y eventualmente el frontend exponen puertos al host
-# ============================================================
 networks:
   app-network:
     name: pp_app_network
