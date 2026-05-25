@@ -1,7 +1,9 @@
 import { motion } from 'framer-motion'
-import { Zap, Bug, BookOpen, Circle, ChevronLeft, Users } from 'lucide-react'
+import { Zap, Bug, BookOpen, ChevronLeft, Users } from 'lucide-react'
 import { useNavigate, useLocation, useParams } from 'react-router-dom'
 import type { SessionData } from '../services/sessionService'
+import CollaborativeEditor from '../components/CollaborativeEditor'
+import { useAuth } from '../hooks/useAuth'
 
 const aiActions = [
   { icon: <Zap size={14} strokeWidth={2} />, label: 'Pedir sugerencia', accent: true },
@@ -13,14 +15,24 @@ export default function Session() {
   const navigate = useNavigate()
   const location = useLocation()
   const { id } = useParams()
+  const { user } = useAuth()
+
   const sessionData = (location.state as { sessionData: SessionData } | null)?.sessionData ?? (() => {
-  try {
-    const sessions = JSON.parse(localStorage.getItem('recent_sessions') ?? '[]')
-    const found = sessions.find((s: any) => s.id === id)
-    return found?.exerciseData ?? null
-  } catch { return null }
-})()
+    try {
+      const sessions = JSON.parse(localStorage.getItem('recent_sessions') ?? '[]')
+      const found = sessions.find((s: any) => s.id === id)
+      return found?.exerciseData ?? null
+    } catch { return null }
+  })()
+  
   const exercise = sessionData?.exercise
+
+  const readOnly = (location.state as any)?.readOnly ?? (() => {
+    try {
+      const sessions = JSON.parse(localStorage.getItem('recent_sessions') ?? '[]')
+      return sessions.find((s: any) => s.id === id)?.status === 'ended'
+    } catch { return false }
+  })()
   
   return (
     <div style={{ width: '100vw', height: '100vh', background: '#07101a', display: 'flex', flexDirection: 'column', fontFamily: 'Inter, system-ui, sans-serif', overflow: 'hidden' }}>
@@ -57,6 +69,13 @@ export default function Session() {
                 </span>
                 En vivo
               </span>
+
+              {readOnly && (
+                <span style={{ fontSize: 10, padding: '3px 8px', borderRadius: 6, background: 'rgba(255,107,107,0.1)', border: '1px solid rgba(255,107,107,0.3)', color: '#ff6b6b' }}>
+                  Solo lectura
+                </span>
+              )}
+
               <span>Sala: {id?.slice(0, 8) ?? '…'}</span>
               <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <Users size={10} strokeWidth={2} /> 2 participantes
@@ -65,7 +84,16 @@ export default function Session() {
           </div>
         </div>
         <button
-          onClick={() => navigate('/dashboard')}
+          onClick={() => {
+            try {
+              const sessions = JSON.parse(localStorage.getItem('recent_sessions') ?? '[]')
+              const updated = sessions.map((s: any) =>
+                s.id === id ? { ...s, status: 'ended' } : s
+              )
+              localStorage.setItem('recent_sessions', JSON.stringify(updated))
+            } catch {}
+            navigate('/dashboard')
+          }}
           style={{ fontSize: 12, padding: '6px 16px', borderRadius: 8, border: '1px solid rgba(220,60,60,0.35)', color: '#ff6b6b', background: 'none', cursor: 'pointer', fontWeight: 500, transition: 'background 0.2s' }}
         >
           Terminar sesión
@@ -88,33 +116,15 @@ export default function Session() {
             backgroundSize: '44px 44px',
           }} />
 
-          {/* Editor toolbar */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '10px 24px', background: '#0a1520', borderBottom: '1px solid rgba(5,102,141,0.18)', flexShrink: 0, position: 'relative', zIndex: 1 }}>
-            <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(0,168,150,0.35)', color: '#00A896', background: 'rgba(0,168,150,0.06)' }}>
-              {exercise?.language ?? 'javascript'}
-            </span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: '#02C39A' }}>
-              <Circle size={5} className="fill-[#02C39A] text-[#02C39A]" /> Colaboración activa
-            </div>
-            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <div title="Noel (Tú)" style={{ width: 24, height: 24, borderRadius: '50%', background: 'rgba(2,195,154,0.12)', border: '1px solid rgba(2,195,154,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 600, color: '#02C39A', cursor: 'help' }}>NK</div>
-              <div title="Camila" style={{ width: 24, height: 24, borderRadius: '50%', background: 'rgba(2,128,144,0.12)', border: '1px solid rgba(2,128,144,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 600, color: '#028090', cursor: 'help' }}>CP</div>
-            </div>
-          </div>
-
-          {/* Code content dinámico */}
-          <div style={{ flex: 1, padding: '24px 32px', overflowY: 'auto', fontFamily: 'JetBrains Mono, monospace', position: 'relative', zIndex: 1 }}>
-            {(exercise?.initial_code ?? '// Cargando código…').split('\n').map((line, i) => (
-              <div key={i} style={{ display: 'flex', gap: 24, lineHeight: '2', fontSize: 13 }}>
-                <span style={{ color: '#1e3a4a', width: 20, textAlign: 'right', flexShrink: 0, userSelect: 'none' }}>{i + 1}</span>
-                <span style={{ whiteSpace: 'pre', color: '#7ab8c8' }}>{line}</span>
-              </div>
-            ))}
-            <div style={{ display: 'flex', gap: 24, lineHeight: '2', fontSize: 13 }}>
-              <span style={{ color: '#1e3a4a', width: 20, textAlign: 'right', flexShrink: 0, userSelect: 'none' }}> </span>
-              <motion.span animate={{ opacity: [1, 0, 1] }} transition={{ repeat: Infinity, duration: 1 }} style={{ display: 'inline-block', width: 8, height: 16, background: '#02C39A', marginTop: 6 }} />
-            </div>
-          </div>
+          {/* Componente del Editor Colaborativo */}
+          <CollaborativeEditor
+            sessionId={id ?? 'default'}
+            userId={user?.id ?? 0}
+            userName={user?.name ?? 'Usuario'}
+            language={exercise?.language ?? 'javascript'}
+            initialCode={exercise?.initial_code ?? '// Cargando…'}
+            readOnly={readOnly}
+          />
         </motion.div>
 
         {/* Sidebar — 3 parts */}

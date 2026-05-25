@@ -240,6 +240,13 @@ services:
       - "traefik.http.routers.editor.rule=PathPrefix(`/editor`)"
       - "traefik.http.routers.editor.entrypoints=web"
       - "traefik.http.services.editor.loadbalancer.server.port=3000"
+      # MIDDLEWARE CORS & WEBSOCKET CORRECTION
+      - "traefik.http.middlewares.cors-editor.headers.accesscontrolalloworiginlist=http://localhost:5173"
+      - "traefik.http.middlewares.cors-editor.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS"
+      - "traefik.http.middlewares.cors-editor.headers.accesscontrolallowheaders=Content-Type,Authorization"
+      - "traefik.http.middlewares.cors-editor.headers.accesscontrolmaxage=100"
+      - "traefik.http.middlewares.cors-editor.headers.addvaryheader=true"
+      - "traefik.http.routers.editor.middlewares=cors-editor"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/editor/health || exit 1"]
       interval: 15s

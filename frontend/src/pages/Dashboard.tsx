@@ -184,7 +184,7 @@ export default function Dashboard() {
                 animate={{ opacity: 1, y: 0 }} 
                 transition={{ duration: 0.4, delay: 0.15 + i * 0.07 }} 
                 whileHover={{ borderColor: session.status === 'active' ? 'rgba(2,195,154,0.4)' : 'rgba(2,128,144,0.35)' }} 
-                onClick={() => navigate(`/session/${session.id}`)}
+                onClick={() => navigate(`/session/${session.id}`, { state: { sessionData: session.exerciseData, readOnly: session.status === 'ended' } })}
                 style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 22px', borderRadius: 14, cursor: 'pointer', ...glass, border: session.status === 'active' ? '1px solid rgba(2,195,154,0.2)' : '1px solid rgba(5,102,141,0.18)' }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>

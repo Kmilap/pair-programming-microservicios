@@ -1,49 +1,54 @@
-// ============================================================
-// Editor Colaborativo — Stub Día 3
-// ============================================================
-// Día 3: stub que responde POST /editor/rooms con un payload fake
-//        para que Pair Programming pueda completar el patrón Aggregator.
-// Día 4: este mismo proyecto se amplía con Yjs + WebSocket para
-//        sincronización colaborativa real (sin cambiar este endpoint).
-// ============================================================
+const express = require('express')
+const http    = require('http')
+const WebSocket = require('ws')
+const { setupWSConnection } = require('y-websocket/bin/utils')
+const { createClient } = require('redis')
+const { randomUUID } = require('crypto')
 
-const express = require('express');
-const { randomUUID } = require('crypto');
+const app    = express()
+const server = http.createServer(app)
+const wss    = new WebSocket.Server({ noServer: true })
 
-const app = express();
-app.use(express.json());
+app.use(express.json())
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  next()
+})
 
-// ----------------------------------------------------------
-// POST /editor/rooms
-// ----------------------------------------------------------
-// Lo invoca Pair Programming desde el Aggregator al iniciar
-// una sesión. Devuelve identificador y URL del documento.
-// ----------------------------------------------------------
+const redis = createClient({ url: process.env.REDIS_URL ?? 'redis://redis:6379' })
+redis.on('error', (err) => console.error('[editor] Redis error:', err))
+redis.connect().then(() => console.log('[editor] Redis connected'))
+
+wss.on('connection', (ws, req) => {
+  const roomId = req.url?.split('/').pop() ?? 'default'
+  console.log(`[editor] WS connection → room=${roomId}`)
+  setupWSConnection(ws, req, { docName: roomId, gc: true })
+})
+
+server.on('upgrade', (req, socket, head) => {
+  const url = req.url ?? ''
+  if (url.startsWith('/editor/rooms/')) {
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      wss.emit('connection', ws, req)
+    })
+  } else {
+    socket.destroy()
+  }
+})
+
 app.post('/editor/rooms', (req, res) => {
-  const roomId = randomUUID();
-  console.log(`[editor-stub] POST /editor/rooms → roomId=${roomId}`);
+  const roomId = randomUUID()
   res.status(201).json({
     roomId,
     editorUrl: `ws://localhost/editor/rooms/${roomId}`,
     createdAt: new Date().toISOString(),
-  });
-});
+  })
+})
 
-// ----------------------------------------------------------
-// GET /editor/health
-// ----------------------------------------------------------
-// Patrón: Health Check (igual que el resto de microservicios)
-// ----------------------------------------------------------
 app.get('/editor/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    service: 'editor',
-    mode: 'stub',
-    timestamp: new Date().toISOString(),
-  });
-});
+  res.json({ status: 'ok', service: 'editor', mode: 'yjs+websocket', timestamp: new Date().toISOString() })
+})
 
-const PORT = 3000;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`[editor-stub] listening on port ${PORT}`);
-});
+const PORT = process.env.PORT ?? 3000
+server.listen(PORT, '0.0.0.0', () => console.log(`[editor] listening on port ${PORT}`))
