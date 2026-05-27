@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routes import suggest, review, explain
+from app.routes import suggest, review, explain, analyze
 from app.services.breaker import ai_breaker
 
 app = FastAPI(
@@ -21,6 +21,7 @@ app.add_middleware(
 app.include_router(suggest.router, prefix="/ai")
 app.include_router(review.router, prefix="/ai")
 app.include_router(explain.router, prefix="/ai")
+app.include_router(analyze.router, prefix="/ai")  # B5 — análisis pedagógico post-sesión
 
 
 @app.get("/ai/health")

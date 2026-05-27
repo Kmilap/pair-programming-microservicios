@@ -1,0 +1,12 @@
+.git
+.github
+.gitignore
+*.md
+tests/
+storage/logs/
+storage/framework/cache/
+bootstrap/cache/
+vendor/
+node_modules/
+.env
+.env.example

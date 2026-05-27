@@ -6,6 +6,7 @@ import type { SessionData } from '../services/sessionService'
 import { useState } from 'react'
 import NewSessionModal from '../components/NewSessionModal'
 import Sidebar from '../components/Sidebar'
+import NotificationWidget from '../components/NotificationWidget'
 
 const TOKENS = [
   { t: '</>', x: '18%', delay: 0,  dur: 18 },
@@ -90,13 +91,17 @@ export default function Dashboard() {
               <h1 style={{ fontSize: 26, fontWeight: 700, color: '#e8f4f8', letterSpacing: '-0.4px', margin: 0 }}>Mis sesiones</h1>
               <p style={{ fontSize: 13, color: '#3a6a7a', marginTop: 6 }}>{recentSessions.length} sesiones en total</p>
             </div>
-            <motion.button
-              onClick={() => setModalOpen(true)}
-              whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', borderRadius: 12, fontSize: 13, fontWeight: 600, color: '#07101a', background: 'linear-gradient(135deg, #028090, #02C39A)', border: 'none', cursor: 'pointer' }}
-            >
-              <Plus size={14} strokeWidth={2.5} /> Nueva sesión
-            </motion.button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {/* B5 — Widget de notificaciones con polling 5s */}
+              <NotificationWidget />
+              <motion.button
+                onClick={() => setModalOpen(true)}
+                whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', borderRadius: 12, fontSize: 13, fontWeight: 600, color: '#07101a', background: 'linear-gradient(135deg, #028090, #02C39A)', border: 'none', cursor: 'pointer' }}
+              >
+                <Plus size={14} strokeWidth={2.5} /> Nueva sesión
+              </motion.button>
+            </div>
           </div>
 
           {/* Stats */}

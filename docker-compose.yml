@@ -351,6 +351,60 @@ services:
       start_period: 30s
 
   # ----------------------------------------------------------
+  # MICROSERVICIO — Notifications (Laravel 12 + SQLite + RabbitMQ)
+  # Patrón Choreography: consume session.started / session.ended
+  # B5: dispara análisis pedagógico post-sesión via Motor de IA
+  # ----------------------------------------------------------
+  notifications:
+    build:
+      context: ./services/notifications
+      dockerfile: Dockerfile
+    container_name: pp_notifications
+    restart: unless-stopped
+    networks:
+      - app-network
+    environment:
+      APP_NAME: Notifications
+      APP_ENV: local
+      APP_DEBUG: "true"
+      APP_KEY: base64:bm90aWZpY2F0aW9uc19rZXlfcGxhY2Vob2xkZXI=
+      DB_CONNECTION: sqlite
+      DB_DATABASE: /var/www/html/database/database.sqlite
+      CACHE_STORE: array
+      LOG_CHANNEL: stderr
+      LOG_LEVEL: debug
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      RABBITMQ_VHOST: /
+      AI_ENGINE_URL: http://ai-engine:8000
+      EDITOR_URL: http://editor:3000
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      ai-engine:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.notifications.rule=PathPrefix(`/notifications`)"
+      - "traefik.http.routers.notifications.entrypoints=web"
+      - "traefik.http.services.notifications.loadbalancer.server.port=8000"
+      # CORS
+      - "traefik.http.middlewares.cors-notifications.headers.accesscontrolalloworiginlist=http://localhost:5173"
+      - "traefik.http.middlewares.cors-notifications.headers.accesscontrolallowmethods=GET,POST,PATCH,OPTIONS"
+      - "traefik.http.middlewares.cors-notifications.headers.accesscontrolallowheaders=Content-Type,Authorization"
+      - "traefik.http.middlewares.cors-notifications.headers.accesscontrolmaxage=100"
+      - "traefik.http.middlewares.cors-notifications.headers.addvaryheader=true"
+      - "traefik.http.routers.notifications.middlewares=cors-notifications"
+    healthcheck:
+      test: ["CMD-SHELL", "php -r \"exit(@file_get_contents('http://localhost:8000/notifications/health') ? 0 : 1);\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+
+  # ----------------------------------------------------------
   # WORKER — Outbox Publisher (Transactional Outbox)
   # ----------------------------------------------------------
   pair-outbox-worker:
