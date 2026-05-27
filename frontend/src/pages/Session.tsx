@@ -258,7 +258,7 @@ export default function Session() {
           {/* ── Copilot IA ─────────────────────────────────────── */}
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '20px 24px', background: 'rgba(5,102,141,0.04)', overflow: 'hidden' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, flexShrink: 0 }}>
-              <p style={{ fontSize: 10, color: '#3a6a7a', textTransform: 'uppercase', letterSpacing: '0.12em', margin: 0 }}>Copilot IA</p>
+              <p style={{ fontSize: 10, color: '#3a6a7a', textTransform: 'uppercase', letterSpacing: '0.12em', margin: 0 }}>Claude IA</p>
               {(aiMode || aiResponse || reviewComments.length > 0) && (
                 <button onClick={resetAiPanel} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3a6a7a', display: 'flex', alignItems: 'center' }}>
                   <X size={14} />

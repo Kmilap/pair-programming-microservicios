@@ -10,13 +10,17 @@ interface ActiveSession {
   id: string
   status: string
   started_at: string
+  editor_url: string
   editor_room_id: string
   host_user_id: number
   partner_user_id: number | null
   exercise: {
+    id: number
     title: string
+    statement: string
     difficulty: string
     language: string
+    initial_code: string
   } | null
 }
 
@@ -123,7 +127,32 @@ export default function TeacherView() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.4, delay: i * 0.07 }}
                   whileHover={{ borderColor: 'rgba(2,195,154,0.4)', y: -2 }}
-                  onClick={() => navigate(`/session/${session.id}`, { state: { readOnly: true } })}
+                  onClick={() => navigate(`/session/${session.id}`, {
+                    state: {
+                      readOnly: true,
+                      // Construir sessionData en el formato que espera Session.tsx
+                      // para que el ENUNCIADO y el editor carguen correctamente.
+                      sessionData: {
+                        session: {
+                          id:         session.id,
+                          status:     session.status,
+                          started_at: session.started_at,
+                          editor_url: session.editor_url,
+                        },
+                        exercise: session.exercise
+                          ? {
+                              id:           session.exercise.id,
+                              title:        session.exercise.title,
+                              statement:    session.exercise.statement,
+                              difficulty:   session.exercise.difficulty,
+                              language:     session.exercise.language,
+                              initial_code: session.exercise.initial_code,
+                            }
+                          : null,
+                        host: { id: session.host_user_id, name: '', email: '' },
+                      },
+                    },
+                  })}
                   style={{
                     padding: '20px 22px', borderRadius: 16, cursor: 'pointer',
                     background: 'rgba(10,26,38,0.65)', backdropFilter: 'blur(12px)',
