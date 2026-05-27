@@ -1,0 +1,13 @@
+from pydantic_settings import BaseSettings
+
+
+class Settings(BaseSettings):
+    anthropic_api_key: str
+    anthropic_model: str = "claude-haiku-4-5-20251001"
+
+    class Config:
+        env_file = ".env"
+        extra = "ignore"
+
+
+settings = Settings()

@@ -237,12 +237,15 @@ services:
       - app-network
     labels:
       - "traefik.enable=true"
+      # Servicio único apuntando al puerto 3000
+      - "traefik.http.services.editor.loadbalancer.server.port=3000"
+      # Router REST + WebSocket (Traefik v2 hace upgrade WS automáticamente)
       - "traefik.http.routers.editor.rule=PathPrefix(`/editor`)"
       - "traefik.http.routers.editor.entrypoints=web"
-      - "traefik.http.services.editor.loadbalancer.server.port=3000"
-      # MIDDLEWARE CORS & WEBSOCKET CORRECTION
+      - "traefik.http.routers.editor.service=editor"
+      # CORS
       - "traefik.http.middlewares.cors-editor.headers.accesscontrolalloworiginlist=http://localhost:5173"
-      - "traefik.http.middlewares.cors-editor.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS"
+      - "traefik.http.middlewares.cors-editor.headers.accesscontrolallowmethods=GET,POST,OPTIONS"
       - "traefik.http.middlewares.cors-editor.headers.accesscontrolallowheaders=Content-Type,Authorization"
       - "traefik.http.middlewares.cors-editor.headers.accesscontrolmaxage=100"
       - "traefik.http.middlewares.cors-editor.headers.addvaryheader=true"
@@ -314,6 +317,38 @@ services:
       timeout: 5s
       retries: 5
       start_period: 60s
+
+  # ----------------------------------------------------------
+  # MICROSERVICIO — AI Engine (Python + FastAPI + Circuit Breaker)
+  # ----------------------------------------------------------
+  ai-engine:
+    build:
+      context: ./services/ai-engine
+      dockerfile: Dockerfile
+    container_name: pp_ai_engine
+    restart: unless-stopped
+    networks:
+      - app-network
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ai.rule=PathPrefix(`/ai`)"
+      - "traefik.http.routers.ai.entrypoints=web"
+      - "traefik.http.services.ai.loadbalancer.server.port=8000"
+      - "traefik.http.middlewares.cors-ai.headers.accesscontrolalloworiginlist=http://localhost:5173"
+      - "traefik.http.middlewares.cors-ai.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS"
+      - "traefik.http.middlewares.cors-ai.headers.accesscontrolallowheaders=Content-Type,Authorization"
+      - "traefik.http.middlewares.cors-ai.headers.accesscontrolmaxage=100"
+      - "traefik.http.middlewares.cors-ai.headers.addvaryheader=true"
+      - "traefik.http.routers.ai.middlewares=cors-ai"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/ai/health')\" || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   # ----------------------------------------------------------
   # WORKER — Outbox Publisher (Transactional Outbox)
