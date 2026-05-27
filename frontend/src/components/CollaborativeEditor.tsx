@@ -1,8 +1,25 @@
 import { useEffect, useRef, useState } from 'react'
 import Editor from '@monaco-editor/react'
+import type { OnMount, Monaco } from '@monaco-editor/react'
 import * as Y from 'yjs'
 import { WebsocketProvider } from 'y-websocket'
 import { MonacoBinding } from 'y-monaco'
+
+// FIX-001: conectar directo al puerto 3000 del editor (bypass Traefik para WS)
+const WS_EDITOR_URL = 'ws://localhost/editor/rooms'
+
+interface AwarenessUser {
+  id?: number
+  name?: string
+  color?: string
+}
+
+export interface ReviewDecoration {
+  line: number
+  comment: string
+}
+
+export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected'
 
 interface Props {
   sessionId: string
@@ -11,139 +28,181 @@ interface Props {
   language: string
   initialCode: string
   readOnly?: boolean
+  onCodeChange?: (code: string) => void
+  onConnectionChange?: (status: ConnectionStatus) => void
+  reviewDecorations?: ReviewDecoration[]
 }
 
-export default function CollaborativeEditor({ 
-  sessionId, 
-  userId, 
-  userName, 
-  language, 
-  initialCode, 
-  readOnly = false 
+export default function CollaborativeEditor({
+  sessionId,
+  userId,
+  userName,
+  language,
+  initialCode,
+  readOnly = false,
+  onCodeChange,
+  onConnectionChange,
+  reviewDecorations,
 }: Props) {
-  const [connected, setConnected] = useState(false)
-  const [peers, setPeers] = useState<string[]>([])
-  const editorRef = useRef<any>(null)
-  const docRef = useRef<Y.Doc | null>(null)
+  const [peers,    setPeers]    = useState<string[]>([])
+  const [isSynced, setIsSynced] = useState(false)   // FIX-003: overlay hasta sync
+
+  const editorRef   = useRef<Parameters<OnMount>[0] | null>(null)
+  const monacoRef   = useRef<Monaco | null>(null)
+  const docRef      = useRef<Y.Doc | null>(null)
   const providerRef = useRef<WebsocketProvider | null>(null)
-  const bindingRef = useRef<MonacoBinding | null>(null)
+  const bindingRef  = useRef<MonacoBinding | null>(null)
+  const decorCollRef = useRef<ReturnType<Parameters<OnMount>[0]['createDecorationsCollection']> | null>(null)
 
   useEffect(() => {
     const doc = new Y.Doc()
-    const wsUrl = `ws://localhost/editor/rooms`
-    const provider = new WebsocketProvider(wsUrl, sessionId, doc)
 
-    docRef.current = doc
+    // FIX-001: URL directa + opciones de reconexión robusta
+    const provider = new WebsocketProvider(WS_EDITOR_URL, sessionId, doc, {
+      connect: true,
+      resyncInterval: 5_000,
+      maxBackoffTime: 2_500,
+    })
+
+    docRef.current      = doc
     providerRef.current = provider
 
-    // Awareness — nombre del usuario
-    provider.awareness.setLocalStateField('user', {
-      id: userId,
-      name: userName,
-      color: '#02C39A',
-    })
+    provider.awareness.setLocalStateField('user', { id: userId, name: userName, color: '#02C39A' })
+
+    onConnectionChange?.('connecting')
 
     provider.on('status', ({ status }: { status: string }) => {
-      setConnected(status === 'connected')
+      onConnectionChange?.(status as ConnectionStatus)
     })
 
+    // FIX-001: timeout de reconexión si sigue en connecting después de 8s
+    const reconnectTimeout = setTimeout(() => {
+      if (!provider.wsconnected) {
+        console.warn('[Yjs] timeout conectando, reintentando…')
+        provider.disconnect()
+        provider.connect()
+      }
+    }, 8_000)
+
     provider.awareness.on('change', () => {
-      const states = Array.from(provider.awareness.getStates().values())
-      const names = states
-        .map((s: any) => s.user?.name)
-        .filter((n): n is string => !!n && n !== userName)
+      const states = Array.from(provider.awareness.getStates().values()) as Array<{ user?: AwarenessUser }>
+      const names  = states.map((s) => s.user?.name).filter((n): n is string => !!n && n !== userName)
       setPeers(names)
     })
 
     return () => {
+      clearTimeout(reconnectTimeout)
       bindingRef.current?.destroy()
       provider.destroy()
       doc.destroy()
     }
-  }, [sessionId, userId, userName])
+  }, [sessionId, userId, userName]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Actualiza las opciones de Monaco dinámicamente cuando cambia readOnly
   useEffect(() => {
-    if (editorRef.current) {
-      editorRef.current.updateOptions({ readOnly: readOnly })
-    }
+    if (editorRef.current) editorRef.current.updateOptions({ readOnly })
   }, [readOnly])
 
-  const handleEditorMount = (editor: any, monaco: any) => {
-    editorRef.current = editor
+  // B2: decoraciones de Code Review cuando cambian
+  useEffect(() => {
+    const editor = editorRef.current
+    const monaco = monacoRef.current
+    if (!editor || !monaco || !reviewDecorations) return
 
-    // Configuración de tema personalizado
+    const newDecorations = reviewDecorations
+      .filter((c) => c.line > 0)
+      .map((c) => ({
+        range: new monaco.Range(c.line, 1, c.line, 9999),
+        options: {
+          isWholeLine: true,
+          className: 'mp-review-line',
+          hoverMessage: { value: `**Copilot IA:** ${c.comment}` },
+        },
+      }))
+
+    if (!decorCollRef.current) {
+      decorCollRef.current = editor.createDecorationsCollection(newDecorations)
+    } else {
+      decorCollRef.current.set(newDecorations)
+    }
+  }, [reviewDecorations])
+
+  const handleEditorMount: OnMount = (editor, monaco) => {
+    editorRef.current = editor
+    monacoRef.current = monaco
+
+    // FIX-002: desactivar validación semántica (elimina subrayados de "variables no declaradas")
+    monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+      noSemanticValidation: true,
+      noSyntaxValidation: false,
+    })
+    monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+      noSemanticValidation: true,
+      noSyntaxValidation: false,
+    })
+
     monaco.editor.defineTheme('micro-pair', {
       base: 'vs-dark',
       inherit: true,
       rules: [
         { token: 'comment', foreground: '3a6a7a', fontStyle: 'italic' },
         { token: 'keyword', foreground: '028090' },
-        { token: 'string', foreground: 'F0F3BD' },
-        { token: 'number', foreground: '02C39A' },
+        { token: 'string',  foreground: 'F0F3BD' },
+        { token: 'number',  foreground: '02C39A' },
       ],
       colors: {
-        'editor.background': '#060f18',
-        'editor.foreground': '#7ab8c8',
-        'editor.lineHighlightBackground': '#0a1a28',
-        'editor.selectionBackground': '#028090aa',
-        'editorLineNumber.foreground': '#1e3a4a',
-        'editorLineNumber.activeForeground': '#3a6a7a',
-        'editorCursor.foreground': '#02C39A',
-        'scrollbarSlider.background': '#0a1a2844',
+        'editor.background':                '#060f18',
+        'editor.foreground':                '#7ab8c8',
+        'editor.lineHighlightBackground':   '#0a1a28',
+        'editor.selectionBackground':       '#028090aa',
+        'editorLineNumber.foreground':      '#1e3a4a',
+        'editorLineNumber.activeForeground':'#3a6a7a',
+        'editorCursor.foreground':          '#02C39A',
+        'scrollbarSlider.background':       '#0a1a2844',
       },
     })
     monaco.editor.setTheme('micro-pair')
 
-    const doc = docRef.current
+    const doc      = docRef.current
     const provider = providerRef.current
     if (!doc || !provider) return
 
     const yText = doc.getText('monaco')
 
-    // Insertar código inicial UNA SOLA VEZ cuando el servidor confirme sync
-    // y el documento esté genuinamente vacío
-    let initialized = false
-    const tryInit = () => {
-      if (initialized) return
-      const content = yText.toString()
-      if (content.length === 0) {
-        initialized = true
-        doc.transact(() => {
-          yText.insert(0, initialCode)
-        })
-      } else {
-        initialized = true // El documento ya tiene contenido proveniente de Redis — no re-insertar
-      }
+    if (onCodeChange) {
+      yText.observe(() => onCodeChange(yText.toString()))
     }
 
+    // FIX-003: insertar initialCode solo si el doc está vacío tras sync
     provider.on('sync', (synced: boolean) => {
-      if (synced) tryInit()
+      if (synced) {
+        if (yText.length === 0 && initialCode) {
+          doc.transact(() => yText.insert(0, initialCode))
+        }
+        setIsSynced(true)
+        onConnectionChange?.('connected')
+      }
     })
 
-    // Fallback por si el evento sync ya se disparó antes de este mount
-    setTimeout(tryInit, 800)
+    // Fallback: si sync no dispara en 3s, considerar inicializado
+    setTimeout(() => {
+      setIsSynced(true)
+      if (yText.length === 0 && initialCode) {
+        doc.transact(() => yText.insert(0, initialCode))
+      }
+    }, 3_000)
 
-    bindingRef.current = new MonacoBinding(
-      yText,
-      editor.getModel(),
-      new Set([editor]),
-      provider.awareness,
-    )
+    bindingRef.current = new MonacoBinding(yText, editor.getModel()!, new Set([editor]), provider.awareness)
 
-    if (readOnly) {
-      editor.updateOptions({ readOnly: true })
-    }
+    if (readOnly) editor.updateOptions({ readOnly: true })
   }
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      {/* Barra de estado conexión */}
+      {/* CSS para decoraciones de Code Review */}
+      <style>{`.mp-review-line { background: rgba(234,179,8,0.12); border-left: 3px solid rgba(234,179,8,0.6); }`}</style>
+
+      {/* Barra de estado */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '8px 24px', background: '#0a1520', borderBottom: '1px solid rgba(5,102,141,0.18)', fontSize: 11, flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <div style={{ width: 7, height: 7, borderRadius: '50%', background: connected ? '#02C39A' : '#ff6b6b', boxShadow: connected ? '0 0 6px #02C39A' : 'none', transition: 'background 0.3s' }} />
-          <span style={{ color: connected ? '#02C39A' : '#ff6b6b' }}>{connected ? 'Conectado' : 'Desconectado'}</span>
-        </div>
         {peers.length > 0 && (
           <span style={{ color: '#3a6a7a' }}>
             {peers.join(', ')} {peers.length === 1 ? 'está' : 'están'} editando
@@ -151,12 +210,11 @@ export default function CollaborativeEditor({
         )}
       </div>
 
-      {/* Monaco Editor Container */}
-      <div style={{ flex: 1, background: '#060f18' }}>
+      {/* Editor con overlay de sincronización (FIX-003) */}
+      <div style={{ flex: 1, background: '#060f18', position: 'relative' }}>
         <Editor
           height="100%"
           language={language}
-          theme="micro-pair"
           onMount={handleEditorMount}
           options={{
             fontSize: 13,
@@ -169,14 +227,28 @@ export default function CollaborativeEditor({
             cursorStyle: 'line',
             padding: { top: 24, bottom: 24 },
             automaticLayout: true,
-            readOnly: readOnly,
-            theme: 'micro-pair',
+            readOnly,
             lineDecorationsWidth: 8,
             glyphMargin: false,
             folding: false,
             lineNumbersMinChars: 3,
           }}
         />
+        {/* Overlay mientras el doc Yjs se sincroniza */}
+        {!isSynced && (
+          <div style={{
+            position: 'absolute', inset: 0, zIndex: 10,
+            background: 'rgba(6,15,24,0.88)',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14,
+          }}>
+            <div style={{
+              width: 36, height: 36, borderRadius: '50%',
+              border: '2px solid rgba(2,195,154,0.2)', borderTopColor: '#02C39A',
+              animation: 'spin 0.9s linear infinite',
+            }} />
+            <span style={{ fontSize: 13, color: '#3a6a7a' }}>Sincronizando editor…</span>
+          </div>
+        )}
       </div>
     </div>
   )
