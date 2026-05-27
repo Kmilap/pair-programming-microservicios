@@ -201,19 +201,55 @@ class AuthController extends Controller
     }
 
     /**
+     * PUT /auth/me
+     *
+     * Actualiza el perfil del usuario autenticado.
+     * Solo permite editar el nombre (editar email requiere re-emisión de token).
+     */
+    public function updateProfile(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'name' => 'required|string|min:2|max:100',
+        ]);
+
+        try {
+            $user = JWTAuth::parseToken()->authenticate();
+        } catch (JWTException $e) {
+            return response()->json(['message' => 'Token invalid'], 401);
+        }
+
+        if (!$user) {
+            return response()->json(['message' => 'User not found'], 404);
+        }
+
+        $user->name = $validated['name'];
+        $user->save();
+
+        return response()->json([
+            'user' => [
+                'id'    => $user->id,
+                'name'  => $user->name,
+                'email' => $user->email,
+                'role'  => $user->role,
+            ],
+            'message' => 'Profile updated',
+        ], 200);
+    }
+
+    /**
      * POST /auth/logout
-     * Invalida el token actual.
+     *
+     * Logout client-side. El frontend descarta el token del localStorage.
+     * No invalidamos en backend porque Auth está configurado como stateless
+     * (JWT_BLACKLIST_ENABLED=false). Llamar a JWTAuth::invalidate() lanzaría
+     * excepción porque el driver de blacklist no está habilitado.
      */
     public function logout(): JsonResponse
     {
-        try {
-            JWTAuth::invalidate(JWTAuth::getToken());
-            return response()->json(['message' => 'Logged out successfully']);
-        } catch (JWTException $e) {
-            return response()->json([
-                'message' => 'Could not invalidate token',
-            ], 500);
-        }
+        return response()->json([
+            'message' => 'Logged out successfully',
+            'mode'    => 'stateless',
+        ], 200);
     }
 
     /**

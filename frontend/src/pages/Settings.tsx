@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { User, Mail, Shield, LogOut, Bell, Palette, ChevronRight } from 'lucide-react'
+import { User, Mail, Shield, LogOut, Bell, Palette, ChevronRight, Edit3, Check, X as XIcon } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import { api } from '../lib/api'
 import Sidebar from '../components/Sidebar'
 
 type Tab = 'profile' | 'preferences'
@@ -24,6 +25,42 @@ export default function Settings() {
   const { user, logout } = useAuth()
   const navigate          = useNavigate()
   const [activeTab, setActiveTab] = useState<Tab>('profile')
+
+  // ── Edición de nombre ───────────────────────────────────────────
+  const [editingName, setEditingName]   = useState(false)
+  const [nameInput,   setNameInput]     = useState(user?.name ?? '')
+  const [saving,      setSaving]        = useState(false)
+  const [saveError,   setSaveError]     = useState<string | null>(null)
+  const [saveSuccess, setSaveSuccess]   = useState(false)
+
+  const handleSaveName = async () => {
+    const trimmed = nameInput.trim()
+    if (trimmed.length < 2 || trimmed.length > 100) {
+      setSaveError('El nombre debe tener entre 2 y 100 caracteres')
+      return
+    }
+    setSaving(true)
+    setSaveError(null)
+    try {
+      const response = await api.put('/auth/me', { name: trimmed })
+      const updatedUser = response.data.user
+      localStorage.setItem('auth_user', JSON.stringify(updatedUser))
+      setSaveSuccess(true)
+      setEditingName(false)
+      setTimeout(() => window.location.reload(), 800)
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'No se pudo guardar el nombre'
+      setSaveError(msg)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleCancelEdit = () => {
+    setNameInput(user?.name ?? '')
+    setEditingName(false)
+    setSaveError(null)
+  }
 
   const initials = user?.name
     ? (user.name.split(' ')[0][0] + (user.name.split(' ')[2]?.[0] ?? user.name.split(' ')[1]?.[0] ?? '')).toUpperCase()
@@ -74,9 +111,61 @@ export default function Settings() {
 
             {/* Info */}
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 20, fontWeight: 700, color: '#e8f4f8', letterSpacing: '-0.3px', marginBottom: 4 }}>
-                {user?.name ?? '—'}
-              </div>
+              {editingName ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 8 }}>
+                  <input
+                    type="text"
+                    value={nameInput}
+                    onChange={(e) => setNameInput(e.target.value)}
+                    disabled={saving}
+                    autoFocus
+                    style={{
+                      fontSize: 20, fontWeight: 700, color: '#e8f4f8', letterSpacing: '-0.3px',
+                      background: 'rgba(5,102,141,0.15)',
+                      border: '1px solid rgba(2,195,154,0.4)',
+                      borderRadius: 10, padding: '6px 12px', outline: 'none', width: '100%',
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSaveName()
+                      if (e.key === 'Escape') handleCancelEdit()
+                    }}
+                  />
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={handleSaveName} disabled={saving} style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 5,
+                      fontSize: 12, color: '#02C39A', background: 'rgba(2,195,154,0.1)',
+                      border: '1px solid rgba(2,195,154,0.3)', borderRadius: 8, padding: '5px 12px',
+                      cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.6 : 1,
+                    }}>
+                      <Check size={12} /> {saving ? 'Guardando...' : 'Guardar'}
+                    </button>
+                    <button onClick={handleCancelEdit} disabled={saving} style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 5,
+                      fontSize: 12, color: '#3a6a7a', background: 'transparent',
+                      border: '1px solid rgba(58,106,122,0.3)', borderRadius: 8, padding: '5px 12px',
+                      cursor: 'pointer',
+                    }}>
+                      <XIcon size={12} /> Cancelar
+                    </button>
+                  </div>
+                  {saveError && <span style={{ fontSize: 12, color: '#ff6b6b' }}>{saveError}</span>}
+                </div>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: '#e8f4f8', letterSpacing: '-0.3px' }}>
+                    {user?.name ?? '—'}
+                  </div>
+                  <button onClick={() => { setNameInput(user?.name ?? ''); setEditingName(true) }} style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                    fontSize: 11, color: '#02C39A', background: 'transparent',
+                    border: '1px solid rgba(2,195,154,0.3)', borderRadius: 6, padding: '3px 8px',
+                    cursor: 'pointer',
+                  }} title="Editar nombre">
+                    <Edit3 size={11} /> Editar
+                  </button>
+                  {saveSuccess && <span style={{ fontSize: 11, color: '#02C39A' }}>✓ Guardado</span>}
+                </div>
+              )}
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span style={{ fontSize: 12, color: '#3a6a7a' }}>{user?.email ?? '—'}</span>
                 <span style={{ width: 3, height: 3, borderRadius: '50%', background: '#2a5a6a', display: 'inline-block' }} />

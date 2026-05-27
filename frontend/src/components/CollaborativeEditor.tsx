@@ -12,6 +12,8 @@ interface AwarenessUser {
   id?: number
   name?: string
   color?: string
+  role?: string
+  mode?: string
 }
 
 export interface ReviewDecoration {
@@ -25,6 +27,8 @@ interface Props {
   sessionId: string
   userId: number
   userName: string
+  userRole?: string
+  sessionStatus?: 'active' | 'ended'
   language: string
   initialCode: string
   readOnly?: boolean
@@ -37,6 +41,8 @@ export default function CollaborativeEditor({
   sessionId,
   userId,
   userName,
+  userRole,
+  sessionStatus,
   language,
   initialCode,
   readOnly = false,
@@ -44,7 +50,8 @@ export default function CollaborativeEditor({
   onConnectionChange,
   reviewDecorations,
 }: Props) {
-  const [peers,    setPeers]    = useState<string[]>([])
+  const [peers, setPeers] = useState<Array<{ name: string; mode: string }>>([])
+  const isEnded = sessionStatus === 'ended'
   const [isSynced, setIsSynced] = useState(false)   // FIX-003: overlay hasta sync
 
   const editorRef   = useRef<Parameters<OnMount>[0] | null>(null)
@@ -56,6 +63,15 @@ export default function CollaborativeEditor({
 
   useEffect(() => {
     const doc = new Y.Doc()
+    docRef.current = doc
+
+    // Si la sesión ya terminó, no instanciar WebSocket — solo cargar initialCode
+    if (isEnded) {
+      const yText = doc.getText('monaco')
+      if (initialCode && yText.toString().length === 0) yText.insert(0, initialCode)
+      onConnectionChange?.('disconnected')
+      return () => { doc.destroy() }
+    }
 
     // FIX-001: URL directa + opciones de reconexión robusta
     const provider = new WebsocketProvider(WS_EDITOR_URL, sessionId, doc, {
@@ -64,10 +80,16 @@ export default function CollaborativeEditor({
       maxBackoffTime: 2_500,
     })
 
-    docRef.current      = doc
     providerRef.current = provider
 
-    provider.awareness.setLocalStateField('user', { id: userId, name: userName, color: '#02C39A' })
+    const isTeacherRole = userRole === 'teacher'
+    provider.awareness.setLocalStateField('user', {
+      id: userId,
+      name: userName,
+      color: isTeacherRole ? '#9d65c9' : '#02C39A',
+      role: userRole,
+      mode: isTeacherRole ? 'observing' : 'editing',
+    })
 
     onConnectionChange?.('connecting')
 
@@ -86,8 +108,10 @@ export default function CollaborativeEditor({
 
     provider.awareness.on('change', () => {
       const states = Array.from(provider.awareness.getStates().values()) as Array<{ user?: AwarenessUser }>
-      const names  = states.map((s) => s.user?.name).filter((n): n is string => !!n && n !== userName)
-      setPeers(names)
+      const peerList = states
+        .filter((s) => s.user?.name && s.user.name !== userName)
+        .map((s) => ({ name: s.user!.name!, mode: s.user?.mode ?? 'editing' }))
+      setPeers(peerList)
     })
 
     return () => {
@@ -96,7 +120,7 @@ export default function CollaborativeEditor({
       provider.destroy()
       doc.destroy()
     }
-  }, [sessionId, userId, userName]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sessionId, userId, userName, userRole, isEnded]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (editorRef.current) editorRef.current.updateOptions({ readOnly })
@@ -205,7 +229,12 @@ export default function CollaborativeEditor({
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '8px 24px', background: '#0a1520', borderBottom: '1px solid rgba(5,102,141,0.18)', fontSize: 11, flexShrink: 0 }}>
         {peers.length > 0 && (
           <span style={{ color: '#3a6a7a' }}>
-            {peers.join(', ')} {peers.length === 1 ? 'está' : 'están'} editando
+            {peers.map((p, i) => (
+              <span key={p.name}>
+                {i > 0 && ', '}
+                {p.name} está {p.mode === 'observing' ? 'observando' : 'editando'}
+              </span>
+            ))}
           </span>
         )}
       </div>

@@ -1,9 +1,11 @@
-import { motion } from 'framer-motion'
-import { Code2, Plus, ChevronRight } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Code2, Plus, ChevronRight, Trash2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../hooks/useAuth'
 import { sessionService } from '../services/sessionService'
 import type { SessionData } from '../services/sessionService'
 import { useState } from 'react'
+import { api } from '../lib/api'
 import NewSessionModal from '../components/NewSessionModal'
 import Sidebar from '../components/Sidebar'
 import NotificationWidget from '../components/NotificationWidget'
@@ -27,8 +29,12 @@ const glass = {
 
 export default function Dashboard() {
   const navigate = useNavigate()
-  const [starting,  setStarting]  = useState(false)
-  const [modalOpen, setModalOpen] = useState(false)
+  const { user } = useAuth()
+  const isTeacher = user?.role === 'teacher'
+  const [starting,     setStarting]     = useState(false)
+  const [modalOpen,    setModalOpen]    = useState(false)
+  const [deletingId,   setDeletingId]   = useState<string | null>(null)
+  const [deleteLoading, setDeleteLoading] = useState(false)
 
   const [recentSessions, setRecentSessions] = useState<Array<{
     id: string | number
@@ -44,6 +50,23 @@ export default function Dashboard() {
       return raw ? (JSON.parse(raw) as []) : []
     } catch { return [] }
   })
+
+  const handleConfirmDelete = async () => {
+    if (!deletingId) return
+    setDeleteLoading(true)
+    try {
+      await api.delete(`/sessions/${deletingId}`)
+      const updated = recentSessions.filter(s => String(s.id) !== deletingId)
+      localStorage.setItem('recent_sessions', JSON.stringify(updated))
+      setRecentSessions(updated)
+      setDeletingId(null)
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'No se pudo borrar la sesión'
+      alert(msg)
+    } finally {
+      setDeleteLoading(false)
+    }
+  }
 
   const handleNewSession = async (exerciseId: number | null) => {
     setStarting(true)
@@ -88,19 +111,27 @@ export default function Dashboard() {
 
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 40 }}>
             <div>
-              <h1 style={{ fontSize: 26, fontWeight: 700, color: '#e8f4f8', letterSpacing: '-0.4px', margin: 0 }}>Mis sesiones</h1>
-              <p style={{ fontSize: 13, color: '#3a6a7a', marginTop: 6 }}>{recentSessions.length} sesiones en total</p>
+              <h1 style={{ fontSize: 26, fontWeight: 700, color: '#e8f4f8', letterSpacing: '-0.4px', margin: 0 }}>
+                {isTeacher ? 'Panel del profesor' : 'Mis sesiones'}
+              </h1>
+              <p style={{ fontSize: 13, color: '#3a6a7a', marginTop: 6 }}>
+                {isTeacher
+                  ? 'Visualiza el monitoreo de tus estudiantes en la sección Vista Profesor.'
+                  : `${recentSessions.length} sesiones en total`}
+              </p>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               {/* B5 — Widget de notificaciones con polling 5s */}
               <NotificationWidget />
-              <motion.button
-                onClick={() => setModalOpen(true)}
-                whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', borderRadius: 12, fontSize: 13, fontWeight: 600, color: '#07101a', background: 'linear-gradient(135deg, #028090, #02C39A)', border: 'none', cursor: 'pointer' }}
-              >
-                <Plus size={14} strokeWidth={2.5} /> Nueva sesión
-              </motion.button>
+              {!isTeacher && (
+                <motion.button
+                  onClick={() => setModalOpen(true)}
+                  whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', borderRadius: 12, fontSize: 13, fontWeight: 600, color: '#07101a', background: 'linear-gradient(135deg, #028090, #02C39A)', border: 'none', cursor: 'pointer' }}
+                >
+                  <Plus size={14} strokeWidth={2.5} /> Nueva sesión
+                </motion.button>
+              )}
             </div>
           </div>
 
@@ -136,8 +167,26 @@ export default function Dashboard() {
                 transition={{ duration: 0.4, delay: 0.15 + i * 0.07 }}
                 whileHover={{ borderColor: session.status === 'active' ? 'rgba(2,195,154,0.4)' : 'rgba(2,128,144,0.35)' }}
                 onClick={() => navigate(`/session/${session.id}`, { state: { sessionData: session.exerciseData, readOnly: session.status === 'ended' } })}
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 22px', borderRadius: 14, cursor: 'pointer', ...glass, border: session.status === 'active' ? '1px solid rgba(2,195,154,0.2)' : '1px solid rgba(5,102,141,0.18)' }}
+                style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 22px', borderRadius: 14, cursor: 'pointer', ...glass, border: session.status === 'active' ? '1px solid rgba(2,195,154,0.2)' : '1px solid rgba(5,102,141,0.18)' }}
               >
+                {/* Botón borrar — solo si el user es host */}
+                {String(session.exerciseData?.host?.id) === String(user?.id) && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); setDeletingId(String(session.id)) }}
+                    style={{
+                      position: 'absolute', top: 10, right: 10,
+                      display: 'inline-flex', alignItems: 'center', gap: 4,
+                      fontSize: 11, color: '#ff6b6b',
+                      background: 'rgba(255,107,107,0.08)', border: '1px solid rgba(255,107,107,0.25)',
+                      borderRadius: 6, padding: '4px 8px', cursor: 'pointer', opacity: 0.7,
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.opacity = '1' }}
+                    onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.7' }}
+                    title="Borrar sesión"
+                  >
+                    <Trash2 size={11} />
+                  </button>
+                )}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
                   <div style={{ width: 38, height: 38, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, background: session.status === 'active' ? 'rgba(2,195,154,0.1)' : 'rgba(5,102,141,0.1)', border: session.status === 'active' ? '1px solid rgba(2,195,154,0.2)' : '1px solid rgba(5,102,141,0.2)' }}>
                     <Code2 size={15} strokeWidth={2} color={session.status === 'active' ? '#02C39A' : '#3a6a7a'} />
@@ -158,16 +207,48 @@ export default function Dashboard() {
               </motion.div>
             ))}
 
-            <motion.div
-              onClick={() => setModalOpen(true)}
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '20px', borderRadius: 14, cursor: 'pointer', border: '1px dashed rgba(5,102,141,0.3)' }}
-            >
-              <Plus size={14} strokeWidth={1.5} color="#3a6a7a" />
-              <span style={{ fontSize: 13, color: '#3a6a7a' }}>Nueva sesión</span>
-            </motion.div>
+            {!isTeacher && (
+              <motion.div
+                onClick={() => setModalOpen(true)}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '20px', borderRadius: 14, cursor: 'pointer', border: '1px dashed rgba(5,102,141,0.3)' }}
+              >
+                <Plus size={14} strokeWidth={1.5} color="#3a6a7a" />
+                <span style={{ fontSize: 13, color: '#3a6a7a' }}>Nueva sesión</span>
+              </motion.div>
+            )}
           </div>
         </motion.div>
       </main>
+
+      {/* Modal confirmación de borrado */}
+      <AnimatePresence>
+        {deletingId && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            onClick={() => !deleteLoading && setDeletingId(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              style={{ background: 'rgba(10,26,38,0.95)', border: '1px solid rgba(255,107,107,0.4)', borderRadius: 16, padding: '28px 32px', maxWidth: 460, width: '90%', boxShadow: '0 24px 60px rgba(0,0,0,0.5)' }}
+            >
+              <h3 style={{ fontSize: 18, fontWeight: 700, color: '#e8f4f8', margin: '0 0 12px' }}>¿Borrar esta sesión?</h3>
+              <p style={{ fontSize: 14, color: '#9bb3bf', lineHeight: 1.5, margin: '0 0 24px' }}>
+                Esta sesión se ocultará del Dashboard. Los eventos de Choreography y Event Sourcing se preservan para mantener la trazabilidad del sistema.
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                <button onClick={() => setDeletingId(null)} disabled={deleteLoading} style={{ fontSize: 13, color: '#9bb3bf', background: 'transparent', border: '1px solid rgba(58,106,122,0.4)', borderRadius: 8, padding: '8px 16px', cursor: 'pointer' }}>
+                  Cancelar
+                </button>
+                <button onClick={handleConfirmDelete} disabled={deleteLoading} style={{ fontSize: 13, color: '#fff', background: '#ff6b6b', border: 'none', borderRadius: 8, padding: '8px 16px', cursor: deleteLoading ? 'not-allowed' : 'pointer', opacity: deleteLoading ? 0.6 : 1 }}>
+                  {deleteLoading ? 'Borrando...' : 'Sí, borrar'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <NewSessionModal open={modalOpen} onClose={() => setModalOpen(false)} onStart={handleNewSession} loading={starting} />
     </div>

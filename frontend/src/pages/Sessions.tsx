@@ -5,6 +5,7 @@ import { Code2, Search, ChevronRight, Plus } from 'lucide-react'
 import Sidebar from '../components/Sidebar'
 import NewSessionModal from '../components/NewSessionModal'
 import { api } from '../lib/api'
+import { useAuth } from '../hooks/useAuth'
 import { sessionService } from '../services/sessionService'
 import type { SessionData } from '../services/sessionService'
 
@@ -29,6 +30,8 @@ const glass = {
 
 export default function Sessions() {
   const navigate = useNavigate()
+  const { user } = useAuth()
+  const isTeacher = user?.role === 'teacher'
   const [filter,     setFilter]     = useState<FilterStatus>('all')
   const [search,     setSearch]     = useState('')
   const [sessions,   setSessions]   = useState<SessionRow[]>([])
@@ -88,16 +91,24 @@ export default function Sessions() {
           {/* Header */}
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 36 }}>
             <div>
-              <h1 style={{ fontSize: 26, fontWeight: 700, color: '#e8f4f8', letterSpacing: '-0.4px', margin: 0 }}>Sesiones</h1>
-              <p style={{ fontSize: 13, color: '#3a6a7a', marginTop: 6 }}>Historial completo de sesiones de pair programming</p>
+              <h1 style={{ fontSize: 26, fontWeight: 700, color: '#e8f4f8', letterSpacing: '-0.4px', margin: 0 }}>
+                {isTeacher ? 'Todas las sesiones' : 'Sesiones'}
+              </h1>
+              <p style={{ fontSize: 13, color: '#3a6a7a', marginTop: 6 }}>
+                {isTeacher
+                  ? 'Historial completo de sesiones del sistema (visible solo para profesores).'
+                  : 'Historial completo de sesiones de pair programming'}
+              </p>
             </div>
-            <motion.button
-              onClick={() => setModalOpen(true)}
-              whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', borderRadius: 12, fontSize: 13, fontWeight: 600, color: '#07101a', background: 'linear-gradient(135deg, #028090, #02C39A)', border: 'none', cursor: 'pointer' }}
-            >
-              <Plus size={14} strokeWidth={2.5} /> Nueva sesión
-            </motion.button>
+            {!isTeacher && (
+              <motion.button
+                onClick={() => setModalOpen(true)}
+                whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', borderRadius: 12, fontSize: 13, fontWeight: 600, color: '#07101a', background: 'linear-gradient(135deg, #028090, #02C39A)', border: 'none', cursor: 'pointer' }}
+              >
+                <Plus size={14} strokeWidth={2.5} /> Nueva sesión
+              </motion.button>
+            )}
           </div>
 
           {/* Búsqueda y filtros */}
@@ -184,7 +195,7 @@ export default function Sessions() {
           </div>
 
           {/* Nueva sesión vacía CTA */}
-          {filtered.length === 0 && !search && (
+          {filtered.length === 0 && !search && !isTeacher && (
             <motion.div
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}
               onClick={() => setModalOpen(true)}

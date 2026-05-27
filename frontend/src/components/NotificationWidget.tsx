@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Bell, X, CheckCircle, AlertCircle, BarChart2, Star, Zap } from 'lucide-react'
+import { Bell, X, CheckCircle, AlertCircle, BarChart2, Star, Zap, Trash2, CheckCheck, UserPlus } from 'lucide-react'
 import { api } from '../lib/api'
 import { useAuth } from '../hooks/useAuth'
 
@@ -26,8 +26,9 @@ interface SessionReport {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getIcon(type: string) {
-  if (type === 'session_report') return <BarChart2 size={14} color="#02C39A" />
+  if (type === 'session_report')  return <BarChart2 size={14} color="#02C39A" />
   if (type === 'session.started') return <CheckCircle size={14} color="#028090" />
+  if (type === 'session.joined')  return <UserPlus size={14} color="#02C39A" />
   return <AlertCircle size={14} color="#3a6a7a" />
 }
 
@@ -35,8 +36,9 @@ function getLabel(type: string): string {
   return (
     {
       'session.started': 'Sesión iniciada',
-      'session.ended': 'Sesión finalizada',
-      session_report: 'Reporte IA disponible',
+      'session.ended':   'Sesión finalizada',
+      'session.joined':  'Partner se unió',
+      session_report:    'Reporte IA disponible',
     }[type] ?? type
   )
 }
@@ -74,6 +76,9 @@ export default function NotificationWidget() {
   const [expanded, setExpanded] = useState<number | null>(null)
   const panelRef = useRef<HTMLDivElement>(null)
 
+  // Los teachers no reciben notificaciones — ocultar campana entera
+  if (user?.role === 'teacher') return null
+
   // ── Polling cada 5 segundos ─────────────────────────────────────
   useEffect(() => {
     if (!user?.id) return
@@ -103,9 +108,8 @@ export default function NotificationWidget() {
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
-  const unread = notifications.filter((n) => !n.read_at).length
+  // ── Handlers ────────────────────────────────────────────────────
 
-  // Marcar como leída al expandir
   const handleExpand = async (n: NotificationItem) => {
     const next = expanded === n.id ? null : n.id
     setExpanded(next)
@@ -120,6 +124,53 @@ export default function NotificationWidget() {
       } catch { /* silencioso */ }
     }
   }
+
+  const handleMarkRead = async (id: number) => {
+    try {
+      await api.patch(`/notifications/${id}/read`)
+      setNotifications(prev =>
+        prev.map(n => (n.id === id ? { ...n, read_at: new Date().toISOString() } : n))
+      )
+    } catch (e) {
+      console.error('Failed to mark as read:', e)
+    }
+  }
+
+  const handleMarkAllRead = async () => {
+    if (!user?.id) return
+    try {
+      await api.patch(`/notifications/read-all?userId=${user.id}`)
+      const now = new Date().toISOString()
+      setNotifications(prev => prev.map(n => ({ ...n, read_at: n.read_at ?? now })))
+    } catch (e) {
+      console.error('Failed to mark all as read:', e)
+    }
+  }
+
+  const handleDelete = async (id: number) => {
+    if (!user?.id) return
+    try {
+      await api.delete(`/notifications/${id}?userId=${user.id}`)
+      setNotifications(prev => prev.filter(n => n.id !== id))
+      if (expanded === id) setExpanded(null)
+    } catch (e) {
+      console.error('Failed to delete:', e)
+    }
+  }
+
+  const handleClearAll = async () => {
+    if (!user?.id) return
+    if (!confirm('¿Borrar todas las notificaciones? Esta acción no se puede deshacer.')) return
+    try {
+      await api.delete(`/notifications/clear-all?userId=${user.id}`)
+      setNotifications([])
+      setExpanded(null)
+    } catch (e) {
+      console.error('Failed to clear all:', e)
+    }
+  }
+
+  const unreadCount = notifications.filter((n) => !n.read_at).length
 
   return (
     <div ref={panelRef} style={{ position: 'relative' }}>
@@ -146,7 +197,7 @@ export default function NotificationWidget() {
       >
         <Bell size={16} strokeWidth={2} />
         <AnimatePresence>
-          {unread > 0 && (
+          {unreadCount > 0 && (
             <motion.span
               key="badge"
               initial={{ scale: 0 }}
@@ -161,7 +212,7 @@ export default function NotificationWidget() {
                 lineHeight: 1,
               }}
             >
-              {unread > 9 ? '9+' : unread}
+              {unreadCount > 9 ? '9+' : unreadCount}
             </motion.span>
           )}
         </AnimatePresence>
@@ -177,7 +228,7 @@ export default function NotificationWidget() {
             transition={{ duration: 0.15, ease: 'easeOut' }}
             style={{
               position: 'absolute', right: 0, top: 'calc(100% + 8px)',
-              width: 340, maxHeight: 480, overflowY: 'auto',
+              width: 680, maxHeight: '80vh', overflowY: 'auto',
               background: '#0d1e2e',
               border: '1px solid rgba(5,102,141,0.3)',
               borderRadius: 16,
@@ -188,21 +239,21 @@ export default function NotificationWidget() {
             {/* Header */}
             <div style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '14px 16px',
+              padding: '14px 20px',
               borderBottom: '1px solid rgba(5,102,141,0.15)',
               position: 'sticky', top: 0, background: '#0d1e2e', zIndex: 1,
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: '#e8f4f8' }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: '#e8f4f8' }}>
                   Notificaciones
                 </span>
-                {unread > 0 && (
+                {unreadCount > 0 && (
                   <span style={{
                     fontSize: 10, padding: '2px 7px', borderRadius: 20,
                     background: 'rgba(2,195,154,0.12)', color: '#02C39A',
                     border: '1px solid rgba(2,195,154,0.25)', fontWeight: 600,
                   }}>
-                    {unread} nuevas
+                    {unreadCount} nuevas
                   </span>
                 )}
               </div>
@@ -214,14 +265,65 @@ export default function NotificationWidget() {
               </button>
             </div>
 
+            {/* Barra de acciones */}
+            {notifications.length > 0 && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'flex-end',
+                gap: 8,
+                padding: '8px 20px',
+                borderBottom: '1px solid rgba(5,102,141,0.15)',
+              }}>
+                {unreadCount > 0 && (
+                  <button
+                    onClick={handleMarkAllRead}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 6,
+                      fontSize: 12, color: '#02C39A',
+                      background: 'transparent',
+                      border: '1px solid rgba(2,195,154,0.3)',
+                      borderRadius: 8,
+                      padding: '5px 10px',
+                      cursor: 'pointer',
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(2,195,154,0.1)' }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+                    title="Marcar todas como leídas"
+                  >
+                    <CheckCheck size={13} />
+                    Marcar todas leídas
+                  </button>
+                )}
+                <button
+                  onClick={handleClearAll}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    fontSize: 12, color: '#ff6b6b',
+                    background: 'transparent',
+                    border: '1px solid rgba(255,107,107,0.3)',
+                    borderRadius: 8,
+                    padding: '5px 10px',
+                    cursor: 'pointer',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,107,107,0.1)' }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+                  title="Borrar todas las notificaciones"
+                >
+                  <Trash2 size={13} />
+                  Borrar todas
+                </button>
+              </div>
+            )}
+
             {/* Lista */}
             {notifications.length === 0 ? (
-              <div style={{ padding: '32px 16px', textAlign: 'center' }}>
+              <div style={{ padding: '32px 20px', textAlign: 'center' }}>
                 <Bell size={24} color="rgba(5,102,141,0.3)" style={{ marginBottom: 8 }} />
-                <p style={{ fontSize: 12, color: '#3a6a7a', margin: 0 }}>
+                <p style={{ fontSize: 13, color: '#3a6a7a', margin: 0 }}>
                   Sin notificaciones aún
                 </p>
-                <p style={{ fontSize: 10, color: '#1e3a4a', margin: '4px 0 0' }}>
+                <p style={{ fontSize: 11, color: '#1e3a4a', margin: '4px 0 0' }}>
                   Termina una sesión para ver el análisis IA
                 </p>
               </div>
@@ -232,6 +334,8 @@ export default function NotificationWidget() {
                   notification={n}
                   expanded={expanded === n.id}
                   onToggle={() => handleExpand(n)}
+                  onMarkRead={handleMarkRead}
+                  onDelete={handleDelete}
                 />
               ))
             )}
@@ -248,19 +352,24 @@ function NotificationRow({
   notification: n,
   expanded,
   onToggle,
+  onMarkRead,
+  onDelete,
 }: {
   notification: NotificationItem
   expanded: boolean
   onToggle: () => void
+  onMarkRead: (id: number) => void
+  onDelete: (id: number) => void
 }) {
-  const isReport = n.type === 'session_report'
-  const report   = isReport ? (n.payload?.report as SessionReport | undefined) : undefined
+  const isReport  = n.type === 'session_report'
+  const isJoined  = n.type === 'session.joined'
+  const report    = isReport ? (n.payload?.report as SessionReport | undefined) : undefined
 
   return (
     <div
       onClick={onToggle}
       style={{
-        padding: '12px 16px',
+        padding: '14px 20px',
         borderBottom: '1px solid rgba(5,102,141,0.08)',
         background: n.read_at ? 'transparent' : 'rgba(2,195,154,0.04)',
         cursor: isReport ? 'pointer' : 'default',
@@ -272,7 +381,7 @@ function NotificationRow({
         <div style={{ marginTop: 2, flexShrink: 0 }}>{getIcon(n.type)}</div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: '#e8f4f8' }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#e8f4f8' }}>
               {getLabel(n.type)}
             </span>
             {isReport && (
@@ -282,15 +391,22 @@ function NotificationRow({
 
           {/* Subtítulo */}
           {n.payload?.exerciseTitle && (
-            <p style={{ fontSize: 11, color: '#3a6a7a', margin: '2px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <p style={{ fontSize: 12, color: '#3a6a7a', margin: '2px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {n.payload.exerciseTitle as string}
             </p>
           )}
 
-          {/* Preview del reporte (siempre visible) */}
+          {/* Para session.joined: mostrar nombre del partner */}
+          {isJoined && n.payload?.partnerName && (
+            <p style={{ fontSize: 12, color: '#02C39A', margin: '2px 0 0' }}>
+              {n.payload.partnerName as string} se unió a tu sesión
+            </p>
+          )}
+
+          {/* Preview del reporte (siempre visible cuando no expandido) */}
           {isReport && report?.summary && !expanded && (
             <p style={{
-              fontSize: 11, color: '#7ab8c8', margin: '4px 0 0',
+              fontSize: 13, color: '#7ab8c8', margin: '6px 0 0',
               lineHeight: 1.5,
               overflow: 'hidden', display: '-webkit-box',
               WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
@@ -299,7 +415,7 @@ function NotificationRow({
             </p>
           )}
 
-          <p style={{ fontSize: 10, color: '#2a5a6a', margin: '4px 0 0' }}>
+          <p style={{ fontSize: 11, color: '#2a5a6a', margin: '4px 0 0' }}>
             {timeAgo(n.created_at)}
           </p>
         </div>
@@ -313,16 +429,16 @@ function NotificationRow({
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.2 }}
-            style={{ overflow: 'hidden', marginTop: 10 }}
+            style={{ overflow: 'hidden', marginTop: 12 }}
           >
             {/* Summary */}
             {report.summary && (
               <p style={{
-                fontSize: 11, color: '#7ab8c8', lineHeight: 1.6,
-                padding: '10px 12px', borderRadius: 8,
+                fontSize: 14, color: '#7ab8c8', lineHeight: 1.6,
+                padding: '12px 14px', borderRadius: 8,
                 background: 'rgba(5,102,141,0.07)',
                 border: '1px solid rgba(5,102,141,0.18)',
-                margin: '0 0 8px',
+                margin: '0 0 10px',
               }}>
                 {report.summary}
               </p>
@@ -330,25 +446,25 @@ function NotificationRow({
 
             {/* Scores */}
             {(report.code_quality || report.collaboration) && (
-              <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
                 {report.code_quality && (
-                  <div style={{ flex: 1, padding: '8px 10px', borderRadius: 8, background: 'rgba(5,102,141,0.07)', border: '1px solid rgba(5,102,141,0.15)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                      <span style={{ fontSize: 9, color: '#3a6a7a', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Código</span>
+                  <div style={{ flex: 1, padding: '10px 12px', borderRadius: 8, background: 'rgba(5,102,141,0.07)', border: '1px solid rgba(5,102,141,0.15)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <span style={{ fontSize: 10, color: '#3a6a7a', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Código</span>
                       <ScoreBadge score={report.code_quality.score} />
                     </div>
-                    <p style={{ fontSize: 10, color: '#7ab8c8', margin: 0, lineHeight: 1.5 }}>
+                    <p style={{ fontSize: 13, color: '#7ab8c8', margin: 0, lineHeight: 1.5 }}>
                       {report.code_quality.feedback}
                     </p>
                   </div>
                 )}
                 {report.collaboration && (
-                  <div style={{ flex: 1, padding: '8px 10px', borderRadius: 8, background: 'rgba(5,102,141,0.07)', border: '1px solid rgba(5,102,141,0.15)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                      <span style={{ fontSize: 9, color: '#3a6a7a', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Equipo</span>
+                  <div style={{ flex: 1, padding: '10px 12px', borderRadius: 8, background: 'rgba(5,102,141,0.07)', border: '1px solid rgba(5,102,141,0.15)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <span style={{ fontSize: 10, color: '#3a6a7a', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Equipo</span>
                       <ScoreBadge score={report.collaboration.score} />
                     </div>
-                    <p style={{ fontSize: 10, color: '#7ab8c8', margin: 0, lineHeight: 1.5 }}>
+                    <p style={{ fontSize: 13, color: '#7ab8c8', margin: 0, lineHeight: 1.5 }}>
                       {report.collaboration.feedback}
                     </p>
                   </div>
@@ -358,12 +474,12 @@ function NotificationRow({
 
             {/* Highlights */}
             {report.highlights && report.highlights.length > 0 && (
-              <div style={{ marginBottom: 8 }}>
-                <p style={{ fontSize: 9, color: '#3a6a7a', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 4px' }}>Puntos positivos</p>
-                {report.highlights.map((h, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 3 }}>
-                    <span style={{ color: '#02C39A', fontSize: 10, marginTop: 1, flexShrink: 0 }}>✓</span>
-                    <p style={{ fontSize: 10, color: '#7ab8c8', margin: 0, lineHeight: 1.5 }}>{h}</p>
+              <div style={{ marginBottom: 10 }}>
+                <p style={{ fontSize: 10, color: '#3a6a7a', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 6px' }}>Puntos positivos</p>
+                {report.highlights.map((h: string, i: number) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 4 }}>
+                    <span style={{ color: '#02C39A', fontSize: 12, marginTop: 1, flexShrink: 0 }}>✓</span>
+                    <p style={{ fontSize: 13, color: '#7ab8c8', margin: 0, lineHeight: 1.5 }}>{h}</p>
                   </div>
                 ))}
               </div>
@@ -372,11 +488,11 @@ function NotificationRow({
             {/* Suggestions */}
             {report.suggestions && report.suggestions.length > 0 && (
               <div>
-                <p style={{ fontSize: 9, color: '#3a6a7a', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 4px' }}>Mejoras sugeridas</p>
-                {report.suggestions.map((s, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 3 }}>
-                    <span style={{ color: '#028090', fontSize: 10, marginTop: 1, flexShrink: 0 }}>→</span>
-                    <p style={{ fontSize: 10, color: '#7ab8c8', margin: 0, lineHeight: 1.5 }}>{s}</p>
+                <p style={{ fontSize: 10, color: '#3a6a7a', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 6px' }}>Mejoras sugeridas</p>
+                {report.suggestions.map((s: string, i: number) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 4 }}>
+                    <span style={{ color: '#028090', fontSize: 12, marginTop: 1, flexShrink: 0 }}>→</span>
+                    <p style={{ fontSize: 13, color: '#7ab8c8', margin: 0, lineHeight: 1.5 }}>{s}</p>
                   </div>
                 ))}
               </div>
@@ -384,6 +500,46 @@ function NotificationRow({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Botones de acción individuales */}
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 10 }}
+      >
+        {!n.read_at && (
+          <button
+            onClick={() => onMarkRead(n.id)}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+              fontSize: 11, color: '#3a6a7a',
+              background: 'transparent',
+              border: '1px solid rgba(58,106,122,0.3)',
+              borderRadius: 6,
+              padding: '3px 8px',
+              cursor: 'pointer',
+            }}
+            title="Marcar como leída"
+          >
+            <CheckCheck size={11} />
+            Leída
+          </button>
+        )}
+        <button
+          onClick={() => onDelete(n.id)}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+            fontSize: 11, color: '#ff6b6b',
+            background: 'transparent',
+            border: '1px solid rgba(255,107,107,0.25)',
+            borderRadius: 6,
+            padding: '3px 8px',
+            cursor: 'pointer',
+          }}
+          title="Borrar notificación"
+        >
+          <Trash2 size={11} />
+        </button>
+      </div>
     </div>
   )
 }
