@@ -24,6 +24,7 @@ export default function Session() {
   const location  = useLocation()
   const { id }    = useParams()
   const { user }  = useAuth()
+  const isTeacher = user?.role === 'teacher'
 
   // ── Datos de sesión ──────────────────────────────────────────
   const sessionData = (location.state as { sessionData: SessionData } | null)?.sessionData ?? (() => {
@@ -34,20 +35,23 @@ export default function Session() {
   })()
   const exercise = sessionData?.exercise
 
-  const readOnly = (location.state as { readOnly?: boolean } | null)?.readOnly
-    ?? new URLSearchParams(location.search).get('readonly') === 'true'
-    ?? false
+  const readOnlyFromState = (location.state as { readOnly?: boolean } | null)?.readOnly
+    ?? (new URLSearchParams(location.search).get('readonly') === 'true')
 
   // ── UI State ─────────────────────────────────────────────────
   const [enunciadoCollapsed, setEnunciadoCollapsed] = useState(false)
   const [connectionStatus, setConnectionStatus]     = useState<ConnectionStatus>('connecting')
   const [showReplay, setShowReplay]                 = useState(false)
+  const [sessionStatus, setSessionStatus]           = useState<'active' | 'ended' | null>(null)
+
+  // Teachers SIEMPRE en read-only. Sesiones ended SIEMPRE en read-only.
+  const readOnly = isTeacher || sessionStatus === 'ended' || readOnlyFromState
 
   // ── Estado del panel de IA ───────────────────────────────────
   const [aiMode, setAiMode]         = useState<AiMode>(null)
   const [question, setQuestion]     = useState('')
   const [aiLoading, setAiLoading]   = useState(false)
-  const [aiSource, setAiSource]     = useState<'ai' | 'fallback' | null>(null)
+  const [aiSource, setAiSource]     = useState<'ai' | 'fallback' | 'error' | null>(null)
 
   // BUG-001: persistencia del historial de IA en localStorage
   const AI_KEY = `ai_last_${id ?? 'session'}`
@@ -63,12 +67,24 @@ export default function Session() {
   // B2: decoraciones Monaco para Code Review
   const [reviewDecorations, setReviewDecorations] = useState<ReviewDecoration[]>([])
 
+  // Fetch del status real de la sesión desde el backend
+  useEffect(() => {
+    if (!id) return
+    api.get(`/sessions/${id}`)
+      .then(({ data }) => {
+        setSessionStatus(data.status as 'active' | 'ended')
+      })
+      .catch(() => {
+        setSessionStatus(null)
+      })
+  }, [id])
+
   // Sincronizar respuesta IA → localStorage
   useEffect(() => {
     if (!aiResponse && reviewComments.length === 0) return
     try {
       localStorage.setItem(AI_KEY, JSON.stringify({ response: aiResponse, comments: reviewComments, mode: aiMode }))
-    } catch {}
+    } catch { /* localStorage no disponible — se ignora silenciosamente */ }
   }, [aiResponse, reviewComments]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const currentCodeRef = useRef<string>(exercise?.initial_code ?? '')
@@ -112,7 +128,7 @@ export default function Session() {
   const resetAiPanel = () => {
     setAiMode(null); setAiResponse(null); setReviewComments([])
     setReviewDecorations([]); setQuestion(''); setAiSource(null)
-    try { localStorage.removeItem(AI_KEY) } catch {}
+    try { localStorage.removeItem(AI_KEY) } catch { /* localStorage no disponible */ }
   }
 
   const status = STATUS_CONFIG[connectionStatus]
@@ -135,25 +151,35 @@ export default function Session() {
             <div style={{ fontSize: 14, fontWeight: 500, color: '#e8f4f8' }}>{exercise?.title ?? 'Cargando…'}</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 10, color: '#3a6a7a', marginTop: 2 }}>
               {/* BUG-002: badge de conexión con estado real */}
-              <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: status.color }}>
-                <motion.span
-                  animate={{ scale: [1, 1.6, 1], opacity: [0.8, 0, 0.8] }}
-                  transition={{ duration: 2, repeat: Infinity }}
-                  style={{ width: 6, height: 6, borderRadius: '50%', background: status.color, display: 'inline-block' }}
-                />
-                {status.text}
-              </span>
+              {sessionStatus === 'ended' ? (
+                <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#3a6a7a' }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#3a6a7a', display: 'inline-block' }} />
+                  Finalizada
+                </span>
+              ) : (
+                <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: status.color }}>
+                  <motion.span
+                    animate={{ scale: [1, 1.6, 1], opacity: [0.8, 0, 0.8] }}
+                    transition={{ duration: 2, repeat: Infinity }}
+                    style={{ width: 6, height: 6, borderRadius: '50%', background: status.color, display: 'inline-block' }}
+                  />
+                  {status.text}
+                </span>
+              )}
               {readOnly && (
                 <span style={{ fontSize: 10, padding: '3px 8px', borderRadius: 6, background: 'rgba(255,107,107,0.1)', border: '1px solid rgba(255,107,107,0.3)', color: '#ff6b6b' }}>Solo lectura</span>
               )}
               <span>Sala: {id?.slice(0, 8) ?? '…'}</span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><Users size={10} strokeWidth={2} /> 2 participantes</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Users size={10} strokeWidth={2} />
+                {isTeacher ? 'Observando' : 'Sesión activa'}
+              </span>
             </div>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
-          {/* B4: Botón Replay (solo si readOnly — sesión finalizada) */}
-          {readOnly && exercise && (
+          {/* B4: Botón Replay (solo si sesión finalizada) */}
+          {sessionStatus === 'ended' && exercise && (
             <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
               onClick={() => setShowReplay(true)}
               style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, padding: '6px 16px', borderRadius: 8, border: '1px solid rgba(2,195,154,0.35)', color: '#02C39A', background: 'rgba(2,195,154,0.06)', cursor: 'pointer', fontWeight: 500 }}
@@ -161,25 +187,35 @@ export default function Session() {
               <Play size={12} strokeWidth={2} /> Ver Replay
             </motion.button>
           )}
-          <button
-            onClick={async () => {
-              try {
-                await api.post(`/sessions/${id}/end`)
-              } catch (e) {
-                console.warn('Error terminando sesión en backend:', e)
-              }
-              try {
-                const sessions = JSON.parse(localStorage.getItem('recent_sessions') ?? '[]')
-                localStorage.setItem('recent_sessions', JSON.stringify(
-                  sessions.map((s: { id: string }) => s.id === id ? { ...s, status: 'ended' } : s)
-                ))
-              } catch {}
-              navigate('/dashboard')
-            }}
-            style={{ fontSize: 12, padding: '6px 16px', borderRadius: 8, border: '1px solid rgba(220,60,60,0.35)', color: '#ff6b6b', background: 'none', cursor: 'pointer', fontWeight: 500 }}
-          >
-            Terminar sesión
-          </button>
+          {!isTeacher && sessionStatus !== 'ended' && (
+            <button
+              onClick={async () => {
+                try {
+                  await api.post(`/sessions/${id}/end`)
+                } catch (e) {
+                  console.warn('Error terminando sesión en backend:', e)
+                }
+                try {
+                  const sessions = JSON.parse(localStorage.getItem('recent_sessions') ?? '[]')
+                  localStorage.setItem('recent_sessions', JSON.stringify(
+                    sessions.map((s: { id: string }) => s.id === id ? { ...s, status: 'ended' } : s)
+                  ))
+                } catch { /* localStorage no disponible */ }
+                navigate('/dashboard')
+              }}
+              style={{ fontSize: 12, padding: '6px 16px', borderRadius: 8, border: '1px solid rgba(220,60,60,0.35)', color: '#ff6b6b', background: 'none', cursor: 'pointer', fontWeight: 500 }}
+            >
+              Terminar sesión
+            </button>
+          )}
+          {isTeacher && (
+            <button
+              onClick={() => navigate('/teacher')}
+              style={{ fontSize: 12, padding: '6px 16px', borderRadius: 8, border: '1px solid rgba(2,128,144,0.35)', color: '#7ab8c8', background: 'none', cursor: 'pointer', fontWeight: 500 }}
+            >
+              Volver a monitoreo
+            </button>
+          )}
         </div>
       </motion.header>
 
@@ -210,16 +246,26 @@ export default function Session() {
         <motion.div initial={{ x: 40, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ duration: 0.5, delay: 0.15 }}
           style={{ flex: 3, display: 'flex', flexDirection: 'column', minWidth: 280, background: '#081623', overflow: 'hidden' }}
         >
-          {/* Pareja */}
+          {/* Pareja / Sesión */}
           <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(5,102,141,0.18)', flexShrink: 0 }}>
-            <p style={{ fontSize: 10, color: '#3a6a7a', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 14 }}>Pareja</p>
+            <p style={{ fontSize: 10, color: '#3a6a7a', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 14 }}>
+              {isTeacher ? 'Monitoreando' : 'Sesión'}
+            </p>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(2,128,144,0.12)', border: '1px solid rgba(2,128,144,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600, color: '#028090', flexShrink: 0 }}>CP</div>
+              <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(2,128,144,0.12)', border: '1px solid rgba(2,128,144,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600, color: '#028090', flexShrink: 0 }}>
+                {isTeacher ? 'ES' : (user?.name?.[0] ?? 'U')}
+              </div>
               <div>
-                <div style={{ fontSize: 14, fontWeight: 500, color: '#e8f4f8' }}>Camila P.</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: '#02C39A', marginTop: 2 }}>
-                  <motion.span animate={{ opacity: [1, 0.3, 1] }} transition={{ duration: 2, repeat: Infinity }} style={{ width: 6, height: 6, borderRadius: '50%', background: '#02C39A', display: 'inline-block' }} />
-                  En línea · editando
+                <div style={{ fontSize: 14, fontWeight: 500, color: '#e8f4f8' }}>
+                  {isTeacher ? 'Sesión del estudiante' : (user?.name ?? 'Usuario')}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: sessionStatus === 'ended' ? '#3a6a7a' : '#02C39A', marginTop: 2 }}>
+                  {sessionStatus !== 'ended' && (
+                    <motion.span animate={{ opacity: [1, 0.3, 1] }} transition={{ duration: 2, repeat: Infinity }} style={{ width: 6, height: 6, borderRadius: '50%', background: '#02C39A', display: 'inline-block' }} />
+                  )}
+                  {sessionStatus === 'ended'
+                    ? 'Sesión finalizada'
+                    : (isTeacher ? 'Observando en vivo' : 'En línea · editando')}
                 </div>
               </div>
             </div>
@@ -256,6 +302,7 @@ export default function Session() {
           </div>
 
           {/* ── Copilot IA ─────────────────────────────────────── */}
+          {!isTeacher && (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '20px 24px', background: 'rgba(5,102,141,0.04)', overflow: 'hidden' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, flexShrink: 0 }}>
               <p style={{ fontSize: 10, color: '#3a6a7a', textTransform: 'uppercase', letterSpacing: '0.12em', margin: 0 }}>Claude IA</p>
@@ -356,6 +403,17 @@ export default function Session() {
               </AnimatePresence>
             </div>
           </div>
+          )}
+          {isTeacher && (
+            <div style={{ flex: 1, padding: '20px 24px', background: 'rgba(5,102,141,0.04)' }}>
+              <p style={{ fontSize: 10, color: '#3a6a7a', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 14 }}>
+                Modo Profesor
+              </p>
+              <div style={{ fontSize: 12, color: '#7ab8c8', lineHeight: 1.7, padding: '14px 16px', borderRadius: 12, background: 'rgba(2,128,144,0.06)', border: '1px solid rgba(2,128,144,0.2)' }}>
+                Estás visualizando esta sesión en modo lectura. El editor se sincroniza en tiempo real con el estudiante a través del patrón Event Sourcing + CRDT (Yjs). No puedes intervenir en el código ni terminar la sesión.
+              </div>
+            </div>
+          )}
         </motion.div>
       </div>
 

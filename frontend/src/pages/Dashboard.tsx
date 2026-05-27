@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion'
 import { Code2, Plus, ChevronRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../hooks/useAuth'
 import { sessionService } from '../services/sessionService'
 import type { SessionData } from '../services/sessionService'
 import { useState } from 'react'
@@ -27,6 +28,8 @@ const glass = {
 
 export default function Dashboard() {
   const navigate = useNavigate()
+  const { user } = useAuth()
+  const isTeacher = user?.role === 'teacher'
   const [starting,  setStarting]  = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
 
@@ -88,19 +91,27 @@ export default function Dashboard() {
 
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 40 }}>
             <div>
-              <h1 style={{ fontSize: 26, fontWeight: 700, color: '#e8f4f8', letterSpacing: '-0.4px', margin: 0 }}>Mis sesiones</h1>
-              <p style={{ fontSize: 13, color: '#3a6a7a', marginTop: 6 }}>{recentSessions.length} sesiones en total</p>
+              <h1 style={{ fontSize: 26, fontWeight: 700, color: '#e8f4f8', letterSpacing: '-0.4px', margin: 0 }}>
+                {isTeacher ? 'Panel del profesor' : 'Mis sesiones'}
+              </h1>
+              <p style={{ fontSize: 13, color: '#3a6a7a', marginTop: 6 }}>
+                {isTeacher
+                  ? 'Visualiza el monitoreo de tus estudiantes en la sección Vista Profesor.'
+                  : `${recentSessions.length} sesiones en total`}
+              </p>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               {/* B5 — Widget de notificaciones con polling 5s */}
               <NotificationWidget />
-              <motion.button
-                onClick={() => setModalOpen(true)}
-                whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', borderRadius: 12, fontSize: 13, fontWeight: 600, color: '#07101a', background: 'linear-gradient(135deg, #028090, #02C39A)', border: 'none', cursor: 'pointer' }}
-              >
-                <Plus size={14} strokeWidth={2.5} /> Nueva sesión
-              </motion.button>
+              {!isTeacher && (
+                <motion.button
+                  onClick={() => setModalOpen(true)}
+                  whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', borderRadius: 12, fontSize: 13, fontWeight: 600, color: '#07101a', background: 'linear-gradient(135deg, #028090, #02C39A)', border: 'none', cursor: 'pointer' }}
+                >
+                  <Plus size={14} strokeWidth={2.5} /> Nueva sesión
+                </motion.button>
+              )}
             </div>
           </div>
 
@@ -158,13 +169,15 @@ export default function Dashboard() {
               </motion.div>
             ))}
 
-            <motion.div
-              onClick={() => setModalOpen(true)}
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '20px', borderRadius: 14, cursor: 'pointer', border: '1px dashed rgba(5,102,141,0.3)' }}
-            >
-              <Plus size={14} strokeWidth={1.5} color="#3a6a7a" />
-              <span style={{ fontSize: 13, color: '#3a6a7a' }}>Nueva sesión</span>
-            </motion.div>
+            {!isTeacher && (
+              <motion.div
+                onClick={() => setModalOpen(true)}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '20px', borderRadius: 14, cursor: 'pointer', border: '1px dashed rgba(5,102,141,0.3)' }}
+              >
+                <Plus size={14} strokeWidth={1.5} color="#3a6a7a" />
+                <span style={{ fontSize: 13, color: '#3a6a7a' }}>Nueva sesión</span>
+              </motion.div>
+            )}
           </div>
         </motion.div>
       </main>
