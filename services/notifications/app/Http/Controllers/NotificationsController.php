@@ -53,6 +53,73 @@ class NotificationsController extends Controller
     }
 
     /**
+     * DELETE /notifications/{id}
+     * Borra una notificación específica del usuario.
+     */
+    public function destroy(Request $request, int $id): JsonResponse
+    {
+        $userId = (int) $request->query('userId');
+
+        if (!$userId) {
+            return response()->json(['message' => 'userId required'], 422);
+        }
+
+        $notification = Notification::where('id', $id)
+            ->where('user_id', $userId)
+            ->first();
+
+        if (!$notification) {
+            return response()->json(['message' => 'Notification not found'], 404);
+        }
+
+        $notification->delete();
+
+        return response()->json(['message' => 'Notification deleted'], 200);
+    }
+
+    /**
+     * PATCH /notifications/read-all
+     * Marca todas las notificaciones no leídas del usuario como leídas.
+     */
+    public function markAllRead(Request $request): JsonResponse
+    {
+        $userId = (int) $request->query('userId');
+
+        if (!$userId) {
+            return response()->json(['message' => 'userId required'], 422);
+        }
+
+        $count = Notification::where('user_id', $userId)
+            ->whereNull('read_at')
+            ->update(['read_at' => now()]);
+
+        return response()->json([
+            'message' => 'All notifications marked as read',
+            'count'   => $count,
+        ], 200);
+    }
+
+    /**
+     * DELETE /notifications/clear-all
+     * Borra todas las notificaciones del usuario.
+     */
+    public function clearAll(Request $request): JsonResponse
+    {
+        $userId = (int) $request->query('userId');
+
+        if (!$userId) {
+            return response()->json(['message' => 'userId required'], 422);
+        }
+
+        $count = Notification::where('user_id', $userId)->delete();
+
+        return response()->json([
+            'message' => 'All notifications cleared',
+            'count'   => $count,
+        ], 200);
+    }
+
+    /**
      * GET /notifications/health
      */
     public function health(): JsonResponse

@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Zap, Bug, BookOpen, ChevronLeft, Users, Send, X, Loader, ChevronDown, ChevronUp, Play } from 'lucide-react'
+import { Zap, Bug, BookOpen, ChevronLeft, Users, Send, X, Loader, ChevronDown, ChevronUp, Play, UserPlus, Copy, Check as CheckIcon } from 'lucide-react'
 import { useNavigate, useLocation, useParams } from 'react-router-dom'
 import type { SessionData } from '../services/sessionService'
 import type { ReviewComment } from '../services/aiService'
@@ -43,6 +43,27 @@ export default function Session() {
   const [connectionStatus, setConnectionStatus]     = useState<ConnectionStatus>('connecting')
   const [showReplay, setShowReplay]                 = useState(false)
   const [sessionStatus, setSessionStatus]           = useState<'active' | 'ended' | null>(null)
+  const [sessionMeta, setSessionMeta]               = useState<{ host_user_id?: number; partner_user_id?: number | null } | null>(null)
+
+  // Invite modal
+  const [inviteOpen, setInviteOpen] = useState(false)
+  const [copied,     setCopied]     = useState(false)
+  const sessionUrl = typeof window !== 'undefined' ? `${window.location.origin}/session/${id}` : ''
+
+  const handleCopyUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(sessionUrl)
+    } catch {
+      const ta = document.createElement('textarea')
+      ta.value = sessionUrl
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      document.body.removeChild(ta)
+    }
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
 
   // Teachers SIEMPRE en read-only. Sesiones ended SIEMPRE en read-only.
   const readOnly = isTeacher || sessionStatus === 'ended' || readOnlyFromState
@@ -67,17 +88,45 @@ export default function Session() {
   // B2: decoraciones Monaco para Code Review
   const [reviewDecorations, setReviewDecorations] = useState<ReviewDecoration[]>([])
 
-  // Fetch del status real de la sesión desde el backend
+  // Fetch del status real + auto-join si corresponde
   useEffect(() => {
-    if (!id) return
-    api.get(`/sessions/${id}`)
-      .then(({ data }) => {
+    if (!id || !user?.id) return
+    let cancelled = false
+
+    const loadSession = async () => {
+      try {
+        const { data } = await api.get(`/sessions/${id}`)
+        if (cancelled) return
+
         setSessionStatus(data.status as 'active' | 'ended')
-      })
-      .catch(() => {
-        setSessionStatus(null)
-      })
-  }, [id])
+        setSessionMeta({ host_user_id: data.host_user_id, partner_user_id: data.partner_user_id })
+
+        const isHost    = Number(data.host_user_id) === Number(user.id)
+        const isPartner = Number(data.partner_user_id) === Number(user.id)
+
+        // Auto-join: estudiante que llega con la URL de invitación
+        if (
+          !isHost && !isPartner && !isTeacher &&
+          data.status === 'active' && !data.partner_user_id
+        ) {
+          try {
+            await api.post(`/sessions/${id}/join`)
+            const { data: refreshed } = await api.get(`/sessions/${id}`)
+            if (!cancelled) {
+              setSessionMeta({ host_user_id: refreshed.host_user_id, partner_user_id: refreshed.partner_user_id })
+            }
+          } catch (joinErr) {
+            console.warn('Auto-join failed:', joinErr)
+          }
+        }
+      } catch {
+        if (!cancelled) setSessionStatus(null)
+      }
+    }
+
+    loadSession()
+    return () => { cancelled = true }
+  }, [id, user?.id, isTeacher])
 
   // Sincronizar respuesta IA → localStorage
   useEffect(() => {
@@ -187,6 +236,17 @@ export default function Session() {
               <Play size={12} strokeWidth={2} /> Ver Replay
             </motion.button>
           )}
+          {/* Botón Invitar partner — solo visible para host, sesión activa, sin partner */}
+          {!isTeacher && sessionStatus === 'active' &&
+           Number(sessionMeta?.host_user_id) === Number(user?.id) &&
+           !sessionMeta?.partner_user_id && (
+            <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+              onClick={() => setInviteOpen(true)}
+              style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, padding: '6px 16px', borderRadius: 8, border: '1px solid rgba(2,195,154,0.4)', color: '#02C39A', background: 'rgba(2,195,154,0.08)', cursor: 'pointer', fontWeight: 500 }}
+            >
+              <UserPlus size={13} strokeWidth={2} /> Invitar partner
+            </motion.button>
+          )}
           {!isTeacher && sessionStatus !== 'ended' && (
             <button
               onClick={async () => {
@@ -232,6 +292,8 @@ export default function Session() {
               sessionId={id ?? 'default'}
               userId={user?.id ?? 0}
               userName={user?.name ?? 'Usuario'}
+              userRole={user?.role}
+              sessionStatus={sessionStatus ?? undefined}
               language={exercise?.language ?? 'javascript'}
               initialCode={exercise?.initial_code ?? '// Cargando…'}
               readOnly={readOnly}
@@ -416,6 +478,57 @@ export default function Session() {
           )}
         </motion.div>
       </div>
+
+      {/* Modal Invitar Partner */}
+      <AnimatePresence>
+        {inviteOpen && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            onClick={() => setInviteOpen(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              style={{ background: 'rgba(10,26,38,0.95)', border: '1px solid rgba(2,195,154,0.4)', borderRadius: 16, padding: '32px 36px', maxWidth: 560, width: '90%', boxShadow: '0 24px 60px rgba(0,0,0,0.5)' }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+                <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(2,195,154,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <UserPlus size={20} color="#02C39A" />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: 18, fontWeight: 700, color: '#e8f4f8', margin: 0 }}>Invitar partner</h3>
+                  <p style={{ fontSize: 12, color: '#3a6a7a', margin: 0 }}>Comparte este enlace para que alguien se una a tu sesión</p>
+                </div>
+              </div>
+
+              <label style={{ display: 'block', fontSize: 12, color: '#9bb3bf', marginBottom: 6 }}>Enlace de la sesión</label>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+                <input
+                  type="text" readOnly value={sessionUrl}
+                  onClick={(e) => (e.target as HTMLInputElement).select()}
+                  style={{ flex: 1, fontSize: 12, color: '#e8f4f8', background: 'rgba(5,102,141,0.15)', border: '1px solid rgba(5,102,141,0.3)', borderRadius: 8, padding: '10px 12px', fontFamily: 'monospace', outline: 'none' }}
+                />
+                <button onClick={handleCopyUrl} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: '#02C39A', background: 'rgba(2,195,154,0.1)', border: '1px solid rgba(2,195,154,0.4)', borderRadius: 8, padding: '10px 16px', cursor: 'pointer', minWidth: 110, justifyContent: 'center' }}>
+                  {copied ? <><CheckIcon size={14} /> Copiado</> : <><Copy size={14} /> Copiar</>}
+                </button>
+              </div>
+
+              <div style={{ background: 'rgba(5,102,141,0.1)', border: '1px solid rgba(5,102,141,0.25)', borderRadius: 10, padding: 14, marginBottom: 20 }}>
+                <p style={{ fontSize: 12, color: '#9bb3bf', margin: 0, lineHeight: 1.5 }}>
+                  El partner se une automáticamente al abrir el enlace. Recibirás una notificación cuando entre.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button onClick={() => setInviteOpen(false)} style={{ fontSize: 13, color: '#9bb3bf', background: 'transparent', border: '1px solid rgba(58,106,122,0.4)', borderRadius: 8, padding: '8px 18px', cursor: 'pointer' }}>
+                  Cerrar
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* B4: Modal de Replay */}
       {showReplay && sessionData?.session.editor_url && (

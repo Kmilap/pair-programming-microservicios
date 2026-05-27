@@ -11,6 +11,7 @@ Route::middleware('auth.jwt')->group(function () {
     Route::get('/sessions',          [SessionController::class, 'index']);
     Route::post('/sessions/start',   [SessionController::class, 'start']);
     Route::get('/sessions/{id}',     [SessionController::class, 'show']);
-    Route::post('/sessions/{id}/join', [SessionController::class, 'join']);
-    Route::post('/sessions/{id}/end',  [SessionController::class, 'end']);
+    Route::post('/sessions/{id}/join',   [SessionController::class, 'join']);
+    Route::post('/sessions/{id}/end',    [SessionController::class, 'end']);
+    Route::delete('/sessions/{id}',      [SessionController::class, 'destroy']);
 });

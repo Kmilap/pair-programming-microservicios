@@ -10,6 +10,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class SessionController extends Controller
 {
@@ -198,30 +199,73 @@ class SessionController extends Controller
             return response()->json(['error' => 'session_not_active', 'message' => 'Only active sessions can be joined.'], 400);
         }
 
-        if ($session->host_user_id === $user['id']) {
-            return response()->json(['error' => 'already_host', 'message' => 'You are the host of this session.'], 400);
+        // El host no puede "unirse" a su propia sesión
+        if ((int) $session->host_user_id === (int) $user['id']) {
+            return response()->json([
+                'message' => 'You are the host of this session',
+                'session' => $this->serializeSession($session),
+            ], 200);
         }
 
-        $session->update(['partner_user_id' => $user['id']]);
+        // Si ya hay partner y NO es el usuario actual, conflicto
+        if ($session->partner_user_id && (int) $session->partner_user_id !== (int) $user['id']) {
+            return response()->json(['error' => 'session_full', 'message' => 'Session already has a partner.'], 409);
+        }
+
+        // Idempotente: si ya es partner, devolver sin re-emitir evento
+        if ((int) $session->partner_user_id === (int) $user['id']) {
+            return response()->json([
+                'message' => 'Already joined',
+                'session' => $this->serializeSession($session),
+            ], 200);
+        }
+
+        DB::transaction(function () use ($session, $user) {
+            $session->partner_user_id = $user['id'];
+            $session->save();
+
+            OutboxEvent::create([
+                'aggregate_type' => 'Session',
+                'aggregate_id'   => $session->id,
+                'event_type'     => 'session.joined',
+                'payload'        => [
+                    'sessionId'     => $session->id,
+                    'hostUserId'    => $session->host_user_id,
+                    'partnerUserId' => $user['id'],
+                    'partnerName'   => $user['name'] ?? 'Estudiante',
+                    'exerciseTitle' => $session->exercise?->title ?? 'Ejercicio',
+                    'editorRoomId'  => $session->editor_room_id,
+                    'joinedAt'      => now()->toIso8601String(),
+                ],
+            ]);
+        });
 
         return response()->json([
-            'status'     => 'joined',
-            'session_id' => $id,
-            'session' => [
-                'id'             => $session->id,
-                'status'         => $session->status,
-                'editor_url'     => $session->editor_url,
-                'editor_room_id' => $session->editor_room_id,
-            ],
-            'exercise' => $session->exercise ? [
-                'id'           => $session->exercise->id,
-                'title'        => $session->exercise->title,
-                'statement'    => $session->exercise->statement,
-                'difficulty'   => $session->exercise->difficulty,
-                'language'     => $session->exercise->language,
-                'initial_code' => $session->exercise->initial_code,
+            'message' => 'Joined successfully',
+            'session' => $this->serializeSession($session->fresh()),
+        ], 200);
+    }
+
+    private function serializeSession(Session $s): array
+    {
+        return [
+            'id'              => $s->id,
+            'status'          => $s->status,
+            'started_at'      => $s->started_at?->toIso8601String(),
+            'ended_at'        => $s->ended_at?->toIso8601String(),
+            'editor_room_id'  => $s->editor_room_id,
+            'editor_url'      => $s->editor_url,
+            'host_user_id'    => $s->host_user_id,
+            'partner_user_id' => $s->partner_user_id,
+            'exercise' => $s->exercise ? [
+                'id'           => $s->exercise->id,
+                'title'        => $s->exercise->title,
+                'difficulty'   => $s->exercise->difficulty,
+                'language'     => $s->exercise->language,
+                'statement'    => $s->exercise->statement,
+                'initial_code' => $s->exercise->initial_code,
             ] : null,
-        ]);
+        ];
     }
 
     // POST /sessions/{id}/end
@@ -267,5 +311,25 @@ class SessionController extends Controller
         Log::info('Session ended', ['sessionId' => $session->id, 'endedBy' => $user['id']]);
 
         return response()->json(['status' => 'ended', 'session_id' => $id, 'ended_at' => $session->fresh()->ended_at?->toIso8601String()]);
+    }
+
+    // DELETE /sessions/{id}
+    public function destroy(Request $request, string $id): JsonResponse
+    {
+        $user    = $request->attributes->get('user');
+        $session = Session::find($id);
+
+        if (! $session) {
+            return response()->json(['message' => 'Session not found'], 404);
+        }
+
+        // Solo el host puede borrar su propia sesión
+        if ((int) $session->host_user_id !== (int) $user['id']) {
+            return response()->json(['message' => 'Only the session host can delete this session'], 403);
+        }
+
+        $session->delete(); // soft delete: setea deleted_at
+
+        return response()->json(['message' => 'Session deleted', 'id' => $id], 200);
     }
 }

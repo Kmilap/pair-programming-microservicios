@@ -21,7 +21,7 @@ class NotificationsConsumeCommand extends Command
 
     private const EXCHANGE    = 'pair_programming.events';
     private const QUEUE_NAME  = 'notifications.queue';
-    private const ROUTING_KEYS = ['session.started', 'session.ended'];
+    private const ROUTING_KEYS = ['session.started', 'session.ended', 'session.joined'];
 
     public function handle(): int
     {
@@ -64,11 +64,14 @@ class NotificationsConsumeCommand extends Command
                 return;
             }
 
-            // Persistir notificación para el host
-            $this->persistForUser($payload['hostUserId'] ?? null, $routingKey, $payload);
-
-            // Persistir notificación para el partner (si existe)
-            $this->persistForUser($payload['partnerUserId'] ?? null, $routingKey, $payload);
+            // session.joined: solo notificar al host (el partner es quien se unió)
+            // session.started / session.ended: notificar a ambos
+            if ($routingKey === 'session.joined') {
+                $this->persistForUser($payload['hostUserId'] ?? null, $routingKey, $payload);
+            } else {
+                $this->persistForUser($payload['hostUserId'] ?? null, $routingKey, $payload);
+                $this->persistForUser($payload['partnerUserId'] ?? null, $routingKey, $payload);
+            }
 
             // B5: análisis pedagógico al finalizar sesión
             if ($routingKey === 'session.ended') {
@@ -110,10 +113,11 @@ class NotificationsConsumeCommand extends Command
     /**
      * B5 — Dispara el análisis pedagógico post-sesión.
      *
-     * Flujo:
-     *  1. Obtener código final del Editor (/editor/rooms/{id}/replay → total events)
-     *  2. POST /ai/analyze con metadata de la sesión
+     * Flujo Choreography correcto:
+     *  1. GET /editor/rooms/{id}/state → recupera el código REAL del Yjs/Redis
+     *  2. POST /ai/analyze con código real + metadata
      *  3. Persistir resultado como notificación tipo 'session_report'
+     *     PARA AMBOS usuarios (host y partner si existe)
      */
     private function triggerB5Analysis(array $payload): void
     {
@@ -122,35 +126,55 @@ class NotificationsConsumeCommand extends Command
         $aiEngineUrl = config('services.ai_engine.url', 'http://ai-engine:8000');
         $editorUrl   = config('services.editor.url', 'http://editor:3000');
 
-        // ── Paso 1: intentar obtener código del Editor ────────────────
-        $sessionId = $payload['sessionId'] ?? null;
-        $code      = '// Código no disponible para este análisis';
+        // ── Paso 1: obtener el roomId ──────────────────────────────────
+        $sessionId    = $payload['sessionId'] ?? null;
+        $editorRoomId = $payload['editorRoomId'] ?? $sessionId;
 
-        if ($sessionId) {
-            $replayUrl      = "{$editorUrl}/editor/rooms/{$sessionId}/replay";
-            $replayResponse = @file_get_contents($replayUrl);
+        $code        = '';
+        $codeSource  = 'empty';
+        $hasSnapshot = false;
 
-            if ($replayResponse) {
-                $replayData = json_decode($replayResponse, true);
-                $totalOps   = $replayData['total'] ?? 0;
-                $code       = "// Sesión con {$totalOps} operaciones de edición registradas.\n"
-                            . "// (Snapshot completo no disponible en análisis automático)";
-                $this->info("[notifications] Got replay data: {$totalOps} events");
+        if ($editorRoomId) {
+            // ── Paso 2: GET /editor/rooms/{id}/state → CÓDIGO REAL ────
+            $stateUrl = "{$editorUrl}/editor/rooms/{$editorRoomId}/state";
+            $stateContext = stream_context_create([
+                'http' => [
+                    'method'        => 'GET',
+                    'timeout'       => 10,
+                    'ignore_errors' => true,
+                ],
+            ]);
+            $stateResponse = @file_get_contents($stateUrl, false, $stateContext);
+
+            if ($stateResponse) {
+                $stateData   = json_decode($stateResponse, true) ?? [];
+                $code        = $stateData['code'] ?? '';
+                $hasSnapshot = (bool) ($stateData['hasSnapshot'] ?? false);
+                $codeSource  = $hasSnapshot ? 'snapshot' : 'event_log';
+                $this->info("[notifications] B5 got code: source={$codeSource}, length=" . strlen($code));
+            } else {
+                $this->warn("[notifications] B5: editor /state no respondió para room {$editorRoomId}");
             }
         }
 
-        // ── Paso 2: calcular duración ─────────────────────────────────
+        // ── Paso 3: calcular duración ──────────────────────────────────
         $durationSeconds = 0;
         if (!empty($payload['endedAt']) && !empty($payload['startedAt'])) {
             $durationSeconds = max(0, strtotime($payload['endedAt']) - strtotime($payload['startedAt']));
         }
 
-        // ── Paso 3: llamar al Motor de IA ─────────────────────────────
+        // ── Paso 4: preparar payload para /ai/analyze ─────────────────
+        $codeForAnalysis = trim($code) !== ''
+            ? $code
+            : '// El estudiante no escribió código durante esta sesión, o el snapshot no está disponible.';
+
         $analyzePayload = json_encode([
             'sessionId'       => $sessionId ?? '',
             'exerciseTitle'   => $payload['exerciseTitle'] ?? 'Ejercicio de programación',
-            'code'            => $code,
+            'code'            => $codeForAnalysis,
+            'codeLength'      => strlen($code),
             'durationSeconds' => $durationSeconds,
+            'language'        => $payload['language'] ?? 'python',
         ]);
 
         $context = stream_context_create([
@@ -168,7 +192,7 @@ class NotificationsConsumeCommand extends Command
         if (!$response) {
             $this->warn('[notifications] B5: AI Engine did not respond — storing fallback report');
             $report = [
-                'summary'       => 'El Motor de IA no estuvo disponible para generar el análisis. Circuit Breaker activo.',
+                'summary'       => 'El Motor de IA no estuvo disponible para generar el análisis pedagógico. Circuit Breaker probablemente activo.',
                 'code_quality'  => ['score' => 0, 'feedback' => 'No disponible'],
                 'collaboration' => ['score' => 0, 'feedback' => 'No disponible'],
                 'suggestions'   => [],
@@ -180,19 +204,27 @@ class NotificationsConsumeCommand extends Command
             $this->info('[notifications] B5: AI analysis received successfully');
         }
 
-        // ── Paso 4: persistir reporte para el host ────────────────────
-        $hostUserId = $payload['hostUserId'] ?? null;
-        if ($hostUserId) {
+        // ── Paso 5: persistir reporte para HOST y PARTNER ─────────────
+        $reportPayload = [
+            'sessionId'     => $sessionId,
+            'exerciseTitle' => $payload['exerciseTitle'] ?? 'Ejercicio',
+            'codeSource'    => $codeSource,
+            'codeLength'    => strlen($code),
+            'report'        => $report,
+        ];
+
+        $hostUserId    = $payload['hostUserId'] ?? null;
+        $partnerUserId = $payload['partnerUserId'] ?? null;
+
+        foreach ([$hostUserId, $partnerUserId] as $userId) {
+            if (!$userId) continue;
+
             Notification::create([
-                'user_id' => (int) $hostUserId,
+                'user_id' => (int) $userId,
                 'type'    => 'session_report',
-                'payload' => json_encode([
-                    'sessionId'     => $sessionId,
-                    'exerciseTitle' => $payload['exerciseTitle'] ?? 'Ejercicio',
-                    'report'        => $report,
-                ]),
+                'payload' => json_encode($reportPayload),
             ]);
-            $this->info("[notifications] B5 report stored for user {$hostUserId}");
+            $this->info("[notifications] B5 report stored for user {$userId}");
         }
     }
 }

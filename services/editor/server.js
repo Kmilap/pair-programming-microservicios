@@ -110,6 +110,54 @@ app.get('/editor/rooms/:roomId/replay', async (req, res) => {
   }
 })
 
+/**
+ * GET /editor/rooms/:roomId/state
+ *
+ * Reconstruye el documento Yjs desde snapshot Redis (o log de updates)
+ * y devuelve el código actual como string plano. Usado por B5 (Notifications).
+ */
+app.get('/editor/rooms/:roomId/state', async (req, res) => {
+  const { roomId } = req.params
+
+  try {
+    const snapshotEncoded = await redis.get(SNAPSHOT_KEY(roomId))
+    const tempDoc = new Y.Doc()
+
+    if (snapshotEncoded) {
+      Y.applyUpdate(tempDoc, Buffer.from(snapshotEncoded, 'base64'))
+    } else {
+      const raw = await redis.lRange(UPDATES_KEY(roomId), 0, -1)
+      if (raw && raw.length > 0) {
+        for (const entry of raw) {
+          try {
+            const parsed = JSON.parse(entry)
+            if (parsed.update) {
+              Y.applyUpdate(tempDoc, Buffer.from(parsed.update, 'base64'))
+            }
+          } catch (e) {
+            console.error(`[editor] failed to apply update for ${roomId}:`, e.message)
+          }
+        }
+      }
+    }
+
+    const yText = tempDoc.getText('monaco')
+    const code  = yText.toString()
+    tempDoc.destroy()
+
+    res.json({
+      roomId,
+      code,
+      length:      code.length,
+      hasSnapshot: !!snapshotEncoded,
+      timestamp:   new Date().toISOString(),
+    })
+  } catch (err) {
+    console.error(`[editor] /state error for room ${roomId}:`, err)
+    res.status(500).json({ error: 'failed to reconstruct state', message: err.message })
+  }
+})
+
 app.get('/editor/health', (_req, res) => {
   res.json({
     status:    'ok',
