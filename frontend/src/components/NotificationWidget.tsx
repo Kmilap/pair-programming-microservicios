@@ -147,17 +147,6 @@ export default function NotificationWidget() {
     }
   }
 
-  const handleDelete = async (id: number) => {
-    if (!user?.id) return
-    try {
-      await api.delete(`/notifications/${id}?userId=${user.id}`)
-      setNotifications(prev => prev.filter(n => n.id !== id))
-      if (expanded === id) setExpanded(null)
-    } catch (e) {
-      console.error('Failed to delete:', e)
-    }
-  }
-
   const handleClearAll = async () => {
     if (!user?.id) return
     if (!confirm('¿Borrar todas las notificaciones? Esta acción no se puede deshacer.')) return
@@ -335,7 +324,6 @@ export default function NotificationWidget() {
                   expanded={expanded === n.id}
                   onToggle={() => handleExpand(n)}
                   onMarkRead={handleMarkRead}
-                  onDelete={handleDelete}
                 />
               ))
             )}
@@ -353,13 +341,11 @@ function NotificationRow({
   expanded,
   onToggle,
   onMarkRead,
-  onDelete,
 }: {
   notification: NotificationItem
   expanded: boolean
   onToggle: () => void
   onMarkRead: (id: number) => void
-  onDelete: (id: number) => void
 }) {
   const isReport  = n.type === 'session_report'
   const isJoined  = n.type === 'session.joined'
@@ -501,12 +487,9 @@ function NotificationRow({
         )}
       </AnimatePresence>
 
-      {/* Botones de acción individuales */}
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 10 }}
-      >
-        {!n.read_at && (
+      {/* Botón marcar leída — solo si no está leída */}
+      {!n.read_at && (
+        <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
           <button
             onClick={() => onMarkRead(n.id)}
             style={{
@@ -514,32 +497,15 @@ function NotificationRow({
               fontSize: 11, color: '#3a6a7a',
               background: 'transparent',
               border: '1px solid rgba(58,106,122,0.3)',
-              borderRadius: 6,
-              padding: '3px 8px',
-              cursor: 'pointer',
+              borderRadius: 6, padding: '3px 8px', cursor: 'pointer',
             }}
             title="Marcar como leída"
           >
             <CheckCheck size={11} />
             Leída
           </button>
-        )}
-        <button
-          onClick={() => onDelete(n.id)}
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 4,
-            fontSize: 11, color: '#ff6b6b',
-            background: 'transparent',
-            border: '1px solid rgba(255,107,107,0.25)',
-            borderRadius: 6,
-            padding: '3px 8px',
-            cursor: 'pointer',
-          }}
-          title="Borrar notificación"
-        >
-          <Trash2 size={11} />
-        </button>
-      </div>
+        </div>
+      )}
     </div>
   )
 }

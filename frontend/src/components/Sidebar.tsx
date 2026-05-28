@@ -1,10 +1,11 @@
 import { useNavigate, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Code2, Settings, LogOut, Eye } from 'lucide-react'
+import { LayoutDashboard, Code2, Settings, LogOut, Eye, TrendingUp } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 
 const NAV = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard',  matchExact: true  },
   { icon: Code2,           label: 'Sesiones',  path: '/sessions',   matchExact: false },
+  { icon: TrendingUp,      label: 'Progreso',  path: '/progress',   matchExact: true  },
   { icon: Settings,        label: 'Ajustes',   path: '/settings',   matchExact: true  },
 ]
 

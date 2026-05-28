@@ -158,6 +158,69 @@ app.get('/editor/rooms/:roomId/state', async (req, res) => {
   }
 })
 
+/**
+ * POST /editor/rooms/:roomId/snapshot
+ *
+ * Fuerza persistencia del Y.Doc en Redis. Llamado por SessionController@end
+ * para garantizar que el código más reciente queda guardado antes de que
+ * la sesión cierre el WebSocket.
+ *
+ * Prioridad: doc en memoria (clientes conectados) → reconstruir desde Redis.
+ */
+app.post('/editor/rooms/:roomId/snapshot', async (req, res) => {
+  const { roomId } = req.params
+
+  try {
+    let doc = null
+    let fromMemory = false
+
+    // 1. Doc vivo de y-websocket si hay clientes conectados
+    if (docs && typeof docs.has === 'function' && docs.has(roomId)) {
+      doc = docs.get(roomId)
+      fromMemory = true
+    }
+
+    // 2. Si no está en memoria, reconstruir desde Redis
+    if (!doc) {
+      doc = new Y.Doc()
+      const snapshotEncoded = await redis.get(SNAPSHOT_KEY(roomId))
+
+      if (snapshotEncoded) {
+        Y.applyUpdate(doc, Buffer.from(snapshotEncoded, 'base64'))
+      } else {
+        // lPush inserta al INICIO → índice 0 es el más reciente.
+        // Aplicar de fin a inicio para reconstruir en orden cronológico.
+        const updates = await redis.lRange(UPDATES_KEY(roomId), 0, -1)
+        if (updates && updates.length > 0) {
+          for (let i = updates.length - 1; i >= 0; i--) {
+            try {
+              const entry = JSON.parse(updates[i])
+              if (entry.update) Y.applyUpdate(doc, Buffer.from(entry.update, 'base64'))
+            } catch (e) {
+              console.error(`[editor] snapshot: failed to apply update ${i} for ${roomId}:`, e.message)
+            }
+          }
+        }
+      }
+    }
+
+    // 3. Persistir snapshot en Redis
+    const state   = Y.encodeStateAsUpdate(doc)
+    const encoded = Buffer.from(state).toString('base64')
+    await redis.set(SNAPSHOT_KEY(roomId), encoded)
+
+    // 4. Destruir solo si fue creado aquí (nunca destruir el doc en memoria)
+    if (!fromMemory) doc.destroy()
+
+    console.log(`[editor] snapshot forced room=${roomId} fromMemory=${fromMemory} size=${encoded.length}`)
+
+    res.json({ roomId, snapshotSize: encoded.length, fromMemory, timestamp: new Date().toISOString() })
+  } catch (err) {
+    console.error(`[editor] /snapshot error for room ${roomId}:`, err)
+    res.status(500).json({ error: 'failed to create snapshot', message: err.message })
+  }
+})
+
 app.get('/editor/health', (_req, res) => {
   res.json({
     status:    'ok',

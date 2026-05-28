@@ -34,6 +34,7 @@ export default function Session() {
     } catch { return null }
   })()
   const exercise = sessionData?.exercise
+  
 
   const readOnlyFromState = (location.state as { readOnly?: boolean } | null)?.readOnly
     ?? (new URLSearchParams(location.search).get('readonly') === 'true')
@@ -44,6 +45,13 @@ export default function Session() {
   const [showReplay, setShowReplay]                 = useState(false)
   const [sessionStatus, setSessionStatus]           = useState<'active' | 'ended' | null>(null)
   const [sessionMeta, setSessionMeta]               = useState<{ host_user_id?: number; partner_user_id?: number | null } | null>(null)
+  const [editorRoomIdBackend, setEditorRoomIdBackend] = useState<string | null>(null)
+  
+  const editorRoomId = editorRoomIdBackend
+    ?? sessionData?.session?.editor_url?.split('/').pop()
+    ?? id
+    ?? 'default'
+
 
   // Invite modal
   const [inviteOpen, setInviteOpen] = useState(false)
@@ -100,6 +108,7 @@ export default function Session() {
 
         setSessionStatus(data.status as 'active' | 'ended')
         setSessionMeta({ host_user_id: data.host_user_id, partner_user_id: data.partner_user_id })
+        setEditorRoomIdBackend(data.editor_room_id ?? null)
 
         const isHost    = Number(data.host_user_id) === Number(user.id)
         const isPartner = Number(data.partner_user_id) === Number(user.id)
@@ -287,9 +296,9 @@ export default function Session() {
           style={{ flex: 7, display: 'flex', flexDirection: 'column', background: '#060f18', borderRight: '1px solid rgba(5,102,141,0.18)', position: 'relative', overflow: 'hidden' }}
         >
           <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0, backgroundImage: 'linear-gradient(rgba(2,195,154,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(2,195,154,0.025) 1px, transparent 1px)', backgroundSize: '44px 44px' }} />
-          {!showReplay && (
+          {!showReplay && sessionStatus !== null && (sessionStatus === 'active' || editorRoomIdBackend !== null) && (
             <CollaborativeEditor
-              sessionId={id ?? 'default'}
+              sessionId={editorRoomId}
               userId={user?.id ?? 0}
               userName={user?.name ?? 'Usuario'}
               userRole={user?.role}
@@ -531,9 +540,9 @@ export default function Session() {
       </AnimatePresence>
 
       {/* B4: Modal de Replay */}
-      {showReplay && sessionData?.session.editor_url && (
+      {showReplay && (editorRoomIdBackend || sessionData?.session?.editor_url) && (
         <SessionReplay
-          roomId={id ?? ''}
+          roomId={editorRoomId}
           onClose={() => setShowReplay(false)}
         />
       )}
