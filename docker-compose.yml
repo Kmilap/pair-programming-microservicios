@@ -392,7 +392,7 @@ services:
       - "traefik.http.services.notifications.loadbalancer.server.port=8000"
       # CORS
       - "traefik.http.middlewares.cors-notifications.headers.accesscontrolalloworiginlist=http://localhost:5173"
-      - "traefik.http.middlewares.cors-notifications.headers.accesscontrolallowmethods=GET,POST,PATCH,OPTIONS"
+      - "traefik.http.middlewares.cors-notifications.headers.accesscontrolallowmethods=GET,POST,PATCH,DELETE,OPTIONS"
       - "traefik.http.middlewares.cors-notifications.headers.accesscontrolallowheaders=Content-Type,Authorization"
       - "traefik.http.middlewares.cors-notifications.headers.accesscontrolmaxage=100"
       - "traefik.http.middlewares.cors-notifications.headers.addvaryheader=true"

@@ -33,8 +33,10 @@ export default function Dashboard() {
   const isTeacher = user?.role === 'teacher'
   const [starting,     setStarting]     = useState(false)
   const [modalOpen,    setModalOpen]    = useState(false)
-  const [deletingId,   setDeletingId]   = useState<string | null>(null)
+  const [deletingId,    setDeletingId]    = useState<string | null>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
+  const [managerOpen,   setManagerOpen]   = useState(false)
+  const [selectedIds,   setSelectedIds]   = useState<Set<string>>(new Set())
 
   const [recentSessions, setRecentSessions] = useState<Array<{
     id: string | number
@@ -57,8 +59,8 @@ export default function Dashboard() {
     try {
       await api.delete(`/sessions/${deletingId}`)
       const updated = recentSessions.filter(s => String(s.id) !== deletingId)
-      localStorage.setItem('recent_sessions', JSON.stringify(updated))
       setRecentSessions(updated)
+      localStorage.setItem('recent_sessions', JSON.stringify(updated))
       setDeletingId(null)
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'No se pudo borrar la sesión'
@@ -66,6 +68,32 @@ export default function Dashboard() {
     } finally {
       setDeleteLoading(false)
     }
+  }
+
+  const handleDeleteSelected = async () => {
+    if (selectedIds.size === 0) return
+    setDeleteLoading(true)
+    try {
+      await Promise.all(Array.from(selectedIds).map(id => api.delete(`/sessions/${id}`)))
+      const updated = recentSessions.filter(s => !selectedIds.has(String(s.id)))
+      setRecentSessions(updated)
+      localStorage.setItem('recent_sessions', JSON.stringify(updated))
+      setSelectedIds(new Set())
+      setManagerOpen(false)
+    } catch {
+      alert('No se pudieron borrar algunas sesiones')
+    } finally {
+      setDeleteLoading(false)
+    }
+  }
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   }
 
   const handleNewSession = async (exerciseId: number | null) => {
@@ -123,6 +151,35 @@ export default function Dashboard() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               {/* B5 — Widget de notificaciones con polling 5s */}
               <NotificationWidget />
+
+              {/* Botón gestor de sesiones — solo para students */}
+              {user?.role !== 'teacher' && (
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => { setManagerOpen(true); setSelectedIds(new Set()) }}
+                  title="Gestionar sesiones"
+                  style={{
+                    position: 'relative', background: 'none',
+                    border: '1px solid transparent', borderRadius: 10, cursor: 'pointer',
+                    color: '#3a6a7a', display: 'flex', alignItems: 'center',
+                    justifyContent: 'center', width: 36, height: 36, transition: 'all 0.15s',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'rgba(255,107,107,0.1)'
+                    e.currentTarget.style.border = '1px solid rgba(255,107,107,0.25)'
+                    e.currentTarget.style.color = '#ff6b6b'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'none'
+                    e.currentTarget.style.border = '1px solid transparent'
+                    e.currentTarget.style.color = '#3a6a7a'
+                  }}
+                >
+                  <Trash2 size={16} strokeWidth={2} />
+                </motion.button>
+              )}
+
               {!isTeacher && (
                 <motion.button
                   onClick={() => setModalOpen(true)}
@@ -169,24 +226,6 @@ export default function Dashboard() {
                 onClick={() => navigate(`/session/${session.id}`, { state: { sessionData: session.exerciseData, readOnly: session.status === 'ended' } })}
                 style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 22px', borderRadius: 14, cursor: 'pointer', ...glass, border: session.status === 'active' ? '1px solid rgba(2,195,154,0.2)' : '1px solid rgba(5,102,141,0.18)' }}
               >
-                {/* Botón borrar — solo si el user es host */}
-                {String(session.exerciseData?.host?.id) === String(user?.id) && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); setDeletingId(String(session.id)) }}
-                    style={{
-                      position: 'absolute', top: 10, right: 10,
-                      display: 'inline-flex', alignItems: 'center', gap: 4,
-                      fontSize: 11, color: '#ff6b6b',
-                      background: 'rgba(255,107,107,0.08)', border: '1px solid rgba(255,107,107,0.25)',
-                      borderRadius: 6, padding: '4px 8px', cursor: 'pointer', opacity: 0.7,
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.opacity = '1' }}
-                    onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.7' }}
-                    title="Borrar sesión"
-                  >
-                    <Trash2 size={11} />
-                  </button>
-                )}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
                   <div style={{ width: 38, height: 38, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, background: session.status === 'active' ? 'rgba(2,195,154,0.1)' : 'rgba(5,102,141,0.1)', border: session.status === 'active' ? '1px solid rgba(2,195,154,0.2)' : '1px solid rgba(5,102,141,0.2)' }}>
                     <Code2 size={15} strokeWidth={2} color={session.status === 'active' ? '#02C39A' : '#3a6a7a'} />
@@ -220,30 +259,74 @@ export default function Dashboard() {
         </motion.div>
       </main>
 
-      {/* Modal confirmación de borrado */}
+      {/* Modal Gestor de Sesiones */}
       <AnimatePresence>
-        {deletingId && (
+        {managerOpen && (
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-            onClick={() => !deleteLoading && setDeletingId(null)}
+            onClick={() => !deleteLoading && setManagerOpen(false)}
           >
             <motion.div
-              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              initial={{ scale: 0.93, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.93, opacity: 0 }}
               onClick={(e) => e.stopPropagation()}
-              style={{ background: 'rgba(10,26,38,0.95)', border: '1px solid rgba(255,107,107,0.4)', borderRadius: 16, padding: '28px 32px', maxWidth: 460, width: '90%', boxShadow: '0 24px 60px rgba(0,0,0,0.5)' }}
+              style={{ background: '#0d1e2e', border: '1px solid rgba(255,107,107,0.3)', borderRadius: 16, padding: '28px 32px', maxWidth: 560, width: '90%', maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 60px rgba(0,0,0,0.5)' }}
             >
-              <h3 style={{ fontSize: 18, fontWeight: 700, color: '#e8f4f8', margin: '0 0 12px' }}>¿Borrar esta sesión?</h3>
-              <p style={{ fontSize: 14, color: '#9bb3bf', lineHeight: 1.5, margin: '0 0 24px' }}>
-                Esta sesión se ocultará del Dashboard. Los eventos de Choreography y Event Sourcing se preservan para mantener la trazabilidad del sistema.
-              </p>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-                <button onClick={() => setDeletingId(null)} disabled={deleteLoading} style={{ fontSize: 13, color: '#9bb3bf', background: 'transparent', border: '1px solid rgba(58,106,122,0.4)', borderRadius: 8, padding: '8px 16px', cursor: 'pointer' }}>
-                  Cancelar
-                </button>
-                <button onClick={handleConfirmDelete} disabled={deleteLoading} style={{ fontSize: 13, color: '#fff', background: '#ff6b6b', border: 'none', borderRadius: 8, padding: '8px 16px', cursor: deleteLoading ? 'not-allowed' : 'pointer', opacity: deleteLoading ? 0.6 : 1 }}>
-                  {deleteLoading ? 'Borrando...' : 'Sí, borrar'}
-                </button>
+              {/* Header */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                <div>
+                  <h3 style={{ fontSize: 17, fontWeight: 700, color: '#e8f4f8', margin: 0 }}>Gestionar sesiones</h3>
+                  <p style={{ fontSize: 12, color: '#3a6a7a', margin: '4px 0 0' }}>Seleccioná las sesiones que querés borrar</p>
+                </div>
+                <button onClick={() => setManagerOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3a6a7a', fontSize: 18 }}>✕</button>
+              </div>
+
+              {/* Lista con checkboxes */}
+              <div style={{ overflowY: 'auto', flex: 1, marginBottom: 16 }}>
+                {recentSessions.filter(s => String(s.exerciseData?.host?.id) === String(user?.id)).length === 0 ? (
+                  <p style={{ fontSize: 13, color: '#3a6a7a', textAlign: 'center', padding: '24px 0' }}>No tenés sesiones propias para gestionar</p>
+                ) : (
+                  recentSessions
+                    .filter(s => String(s.exerciseData?.host?.id) === String(user?.id))
+                    .map(s => {
+                      const sid = String(s.id)
+                      const checked = selectedIds.has(sid)
+                      return (
+                        <div
+                          key={sid}
+                          onClick={() => toggleSelect(sid)}
+                          style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', borderRadius: 10, marginBottom: 6, cursor: 'pointer', background: checked ? 'rgba(255,107,107,0.08)' : 'rgba(5,102,141,0.06)', border: checked ? '1px solid rgba(255,107,107,0.3)' : '1px solid rgba(5,102,141,0.15)', transition: 'all .15s' }}
+                        >
+                          <div style={{ width: 18, height: 18, borderRadius: 5, border: checked ? '2px solid #ff6b6b' : '2px solid rgba(58,106,122,0.5)', background: checked ? '#ff6b6b' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all .15s' }}>
+                            {checked && <span style={{ color: '#fff', fontSize: 11, fontWeight: 700 }}>✓</span>}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <p style={{ fontSize: 13, fontWeight: 600, color: '#e8f4f8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {s.name}
+                            </p>
+                            <p style={{ fontSize: 11, color: '#3a6a7a', margin: '2px 0 0' }}>
+                              {s.lang} · {s.difficulty} · {s.status === 'ended' ? 'Finalizada' : 'Activa'}
+                            </p>
+                          </div>
+                        </div>
+                      )
+                    })
+                )}
+              </div>
+
+              {/* Footer */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 12, color: '#3a6a7a' }}>
+                  {selectedIds.size > 0 ? `${selectedIds.size} seleccionada${selectedIds.size > 1 ? 's' : ''}` : 'Ninguna seleccionada'}
+                </span>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => setManagerOpen(false)} disabled={deleteLoading} style={{ fontSize: 13, color: '#9bb3bf', background: 'transparent', border: '1px solid rgba(58,106,122,0.4)', borderRadius: 8, padding: '8px 16px', cursor: 'pointer' }}>
+                    Cancelar
+                  </button>
+                  <button onClick={handleDeleteSelected} disabled={deleteLoading || selectedIds.size === 0} style={{ fontSize: 13, color: '#fff', background: selectedIds.size === 0 ? 'rgba(255,107,107,0.3)' : '#ff6b6b', border: 'none', borderRadius: 8, padding: '8px 16px', cursor: (deleteLoading || selectedIds.size === 0) ? 'not-allowed' : 'pointer', opacity: (deleteLoading || selectedIds.size === 0) ? 0.6 : 1, transition: 'all .15s' }}>
+                    {deleteLoading ? 'Borrando...' : `Borrar${selectedIds.size > 0 ? ` ${selectedIds.size}` : ''}`}
+                  </button>
+                </div>
               </div>
             </motion.div>
           </motion.div>

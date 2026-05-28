@@ -65,11 +65,30 @@ export default function CollaborativeEditor({
     const doc = new Y.Doc()
     docRef.current = doc
 
-    // Si la sesión ya terminó, no instanciar WebSocket — solo cargar initialCode
+    
+    // Si la sesión ya terminó, no instanciar WebSocket — cargar código real desde Redis
     if (isEnded) {
       const yText = doc.getText('monaco')
-      if (initialCode && yText.toString().length === 0) yText.insert(0, initialCode)
-      onConnectionChange?.('disconnected')
+      const apiBase = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost').replace(/\/$/, '')
+      fetch(`${apiBase}/editor/rooms/${sessionId}/state`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          const code = (data?.code && data.code.trim() !== '') ? data.code : (initialCode ?? '')
+          // Forzar el contenido del backend, sin depender del estado previo del yText
+          doc.transact(() => {
+            if (yText.length > 0) yText.delete(0, yText.length)
+            yText.insert(0, code)
+          })
+          onConnectionChange?.('disconnected')
+          setIsSynced(true)
+        })
+        .catch(() => {
+          doc.transact(() => {
+            if (yText.length === 0 && initialCode) yText.insert(0, initialCode)
+          })
+          onConnectionChange?.('disconnected')
+          setIsSynced(true)
+        })
       return () => { doc.destroy() }
     }
 
@@ -188,13 +207,24 @@ export default function CollaborativeEditor({
 
     const doc      = docRef.current
     const provider = providerRef.current
-    if (!doc || !provider) return
+    if (!doc) return
 
     const yText = doc.getText('monaco')
 
     if (onCodeChange) {
       yText.observe(() => onCodeChange(yText.toString()))
     }
+
+    // Caso 1: sesión finalizada — bindear Monaco al yText (sin provider) y mostrar lo que ya cargó el useEffect
+    if (isEnded) {
+      bindingRef.current = new MonacoBinding(yText, editor.getModel()!, new Set([editor]))
+      editor.updateOptions({ readOnly: true })
+      setIsSynced(true)
+      return
+    }
+
+    // Caso 2: sesión activa — flujo normal con provider
+    if (!provider) return
 
     // FIX-003: insertar initialCode solo si el doc está vacío tras sync
     provider.on('sync', (synced: boolean) => {

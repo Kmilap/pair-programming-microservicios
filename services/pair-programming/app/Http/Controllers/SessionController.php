@@ -76,9 +76,13 @@ class SessionController extends Controller
             return response()->json(['error' => 'not_found'], 404);
         }
 
-        if ($user['role'] !== 'teacher'
-            && $session->host_user_id !== $user['id']
-            && $session->partner_user_id !== $user['id']) {
+        $isAuthorized = $user['role'] === 'teacher'
+            || $session->host_user_id === $user['id']
+            || $session->partner_user_id === $user['id']
+            // Sesión abierta a invitación: activa y sin partner aún
+            || ($session->status === 'active' && $session->partner_user_id === null);
+
+        if (! $isAuthorized) {
             return response()->json(['error' => 'forbidden'], 403);
         }
 
@@ -296,17 +300,31 @@ class SessionController extends Controller
                 'aggregate_id'   => $session->id,
                 'event_type'     => 'session.ended',
                 'payload'        => [
-                    'sessionId'      => $session->id,
-                    'exerciseId'     => $session->exercise_id,
-                    'exerciseTitle'  => $session->exercise?->title,
-                    'hostUserId'     => $session->host_user_id,
-                    'partnerUserId'  => $session->partner_user_id,
-                    'editorRoomId'   => $session->editor_room_id,
-                    'endedAt'        => now()->toIso8601String(),
-                    'endedBy'        => $user['id'],
+                    'sessionId'       => $session->id,
+                    'exerciseId'      => $session->exercise_id,
+                    'exerciseTitle'   => $session->exercise?->title,
+                    'hostUserId'      => $session->host_user_id,
+                    'partnerUserId'   => $session->partner_user_id,
+                    'editorRoomId'    => $session->editor_room_id,
+                    'startedAt'       => $session->started_at?->toIso8601String(),
+                    'endedAt'         => now()->toIso8601String(),
+                    'endedBy'         => $user['id'],
+                    'language'        => $session->exercise?->language ?? 'javascript',
+                    'durationSeconds' => (int) max(0, now()->diffInSeconds($session->started_at ?? now())),
                 ],
             ]);
         });
+
+        // Forzar snapshot del editor fuera de la transacción para no bloquearla
+        // si el servicio editor no responde
+        try {
+            $editorUrl = config('services.editor.url', 'http://editor:3000');
+            $ctx = stream_context_create(['http' => ['method' => 'POST', 'timeout' => 8, 'ignore_errors' => true]]);
+            $result = @file_get_contents("{$editorUrl}/editor/rooms/{$session->editor_room_id}/snapshot", false, $ctx);
+            Log::info("[session] snapshot forced for room {$session->editor_room_id}: " . ($result ?: 'no response'));
+        } catch (\Throwable $e) {
+            Log::warning("[session] snapshot force failed: {$e->getMessage()}");
+        }
 
         Log::info('Session ended', ['sessionId' => $session->id, 'endedBy' => $user['id']]);
 
